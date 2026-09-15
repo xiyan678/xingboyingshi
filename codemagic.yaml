@@ -6,7 +6,7 @@ workflows:
     environment:
       ios_signing:
         distribution_type: ad_hoc
-        bundle_identifier: pro.xbxx.xingboApp
+        bundle_identifier: app.eggplant1907.jet4469
       flutter: stable
       xcode: latest
       cocoapods: default
