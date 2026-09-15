@@ -293,6 +293,24 @@ class VideoSurface extends StatelessWidget {
                                 visualDensity: VisualDensity.compact,
                                 onPressed: onNext,
                                 icon: const Icon(Icons.skip_next)),
+                          if (!mini)
+                            PopupMenuButton<String>(
+                                tooltip: '更多',
+                                onSelected: (value) {
+                                  if (value == 'danmaku') {
+                                    showDanmakuSettings(context);
+                                  } else if (value == 'mini') {
+                                    session.minimize();
+                                    Navigator.maybePop(context);
+                                  }
+                                },
+                                itemBuilder: (_) => const [
+                                  PopupMenuItem(
+                                      value: 'danmaku', child: Text('弹幕设置')),
+                                  PopupMenuItem(
+                                      value: 'mini', child: Text('应用小窗')),
+                                ],
+                                icon: const Icon(Icons.more_horiz)),
                           IconButton(
                               tooltip: fullscreen
                                   ? '退出全屏'
