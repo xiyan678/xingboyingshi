@@ -93,39 +93,6 @@ class _PlayerState extends State<Player> {
                                                             onFullscreen: () =>
                                                                 Navigator.pop(
                                                                     ctx)))))))))),
-            if (session.ready)
-              Wrap(alignment: WrapAlignment.center, children: [
-                TextButton.icon(
-                    onPressed: () => showDanmakuSettings(context),
-                    icon: const Icon(Icons.tune, size: 18),
-                    label: const Text('弹幕设置')),
-                TextButton.icon(
-                    onPressed: () => send(context),
-                    icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                    label: const Text('发弹幕')),
-                TextButton.icon(
-                    onPressed: () {
-                      session.minimize();
-                      Navigator.pop(context);
-                    },
-                    icon: const Icon(Icons.picture_in_picture_alt, size: 18),
-                    label: const Text('应用小窗')),
-                TextButton.icon(
-                    onPressed: () async {
-                      try {
-                        await session.enterSystemPip();
-                      } catch (e) {
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                              content: Text(e is ServiceError
-                                  ? e.message
-                                  : '此设备或线路暂不支持系统小窗')));
-                        }
-                      }
-                    },
-                    icon: const Icon(Icons.open_in_new, size: 18),
-                    label: const Text('桌面小窗'))
-              ])
           ]));
   Future<void> send(BuildContext context) async {
     final service = AppService.instance;
