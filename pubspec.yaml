@@ -1,0 +1,39 @@
+name: xingbo_app
+description: 星播影院双端客户端
+publish_to: none
+version: 0.2.3+5
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+dependencies:
+  cupertino_icons: ^1.0.9
+  flutter:
+    sdk: flutter
+  flutter_secure_storage: ^11.1.1
+  http: ^1.2.2
+  native_picture_in_picture: ^1.0.1
+  shared_preferences: ^2.3.2
+  video_player: ^2.9.2
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.4
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/brand.png
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/brand.png
+  remove_alpha_ios: true
+  background_color_ios: '#0C101A'
+  adaptive_icon_background: '#0C101A'
+  adaptive_icon_foreground: assets/brand.png
+  web:
+    generate: true
+    image_path: assets/brand.png
+    background_color: '#0C101A'
+    theme_color: '#0C101A'
+
