@@ -79,6 +79,7 @@ class _PlayerState extends State<Player> {
                             ? const Center(child: CircularProgressIndicator())
                             : VideoSurface(
                                 onNext: widget.onNext,
+                                onSendDanmaku: () => send(context),
                                 onFullscreen: () => Navigator.push(
                                     context,
                                     MaterialPageRoute<void>(
@@ -90,6 +91,7 @@ class _PlayerState extends State<Player> {
                                                     builder: (ctx, _) =>
                                                         VideoSurface(
                                                             fullscreen: true,
+                                                            onSendDanmaku: () => send(ctx),
                                                             onFullscreen: () =>
                                                                 Navigator.pop(
                                                                     ctx)))))))))),
@@ -147,11 +149,13 @@ class _PlayerState extends State<Player> {
 
 class VideoSurface extends StatelessWidget {
   final VoidCallback? onNext;
+  final VoidCallback? onSendDanmaku;
   final VoidCallback onFullscreen;
   final bool fullscreen, mini;
   const VideoSurface(
       {super.key,
       this.onNext,
+      this.onSendDanmaku,
       required this.onFullscreen,
       this.fullscreen = false,
       this.mini = false});
@@ -299,6 +303,8 @@ class VideoSurface extends StatelessWidget {
                                 onSelected: (value) {
                                   if (value == 'danmaku') {
                                     showDanmakuSettings(context);
+                                  } else if (value == 'send') {
+                                    onSendDanmaku?.call();
                                   } else if (value == 'mini') {
                                     session.minimize();
                                     Navigator.maybePop(context);
@@ -307,6 +313,8 @@ class VideoSurface extends StatelessWidget {
                                 itemBuilder: (_) => const [
                                   PopupMenuItem(
                                       value: 'danmaku', child: Text('弹幕设置')),
+                                  PopupMenuItem(
+                                      value: 'send', child: Text('发弹幕')),
                                   PopupMenuItem(
                                       value: 'mini', child: Text('应用小窗')),
                                 ],
