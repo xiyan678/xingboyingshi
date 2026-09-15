@@ -223,6 +223,52 @@ class VideoSurface extends StatelessWidget {
                         episode: session.episodeIndex,
                         controller: c)),
               if (v.isBuffering) const CircularProgressIndicator(),
+              if (!mini)
+                Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: Container(
+                        padding: const EdgeInsets.fromLTRB(8, 6, 8, 18),
+                        decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [Colors.black87, Colors.transparent])),
+                        child: Row(children: [
+                          IconButton(
+                              tooltip: '返回',
+                              visualDensity: VisualDensity.compact,
+                              onPressed: () => Navigator.maybePop(context),
+                              icon: const Icon(Icons.arrow_back)),
+                          Expanded(
+                              child: Text(
+                                  '${session.film?.name ?? ''}  ${session.episode?.name ?? ''}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600))),
+                          IconButton(
+                              tooltip: '播放设置',
+                              visualDensity: VisualDensity.compact,
+                              onPressed: () => showDanmakuSettings(context),
+                              icon: const Icon(Icons.more_vert))
+                        ]))),
+              if (!mini && v.isPlaying)
+                Positioned(
+                    left: 18,
+                    child: IconButton(
+                        tooltip: '快退 10 秒',
+                        onPressed: () => action(context, () => c.seekTo(v.position - const Duration(seconds: 10))),
+                        icon: const Icon(Icons.replay_10, size: 32))),
+              if (!mini && v.isPlaying)
+                Positioned(
+                    right: 18,
+                    child: IconButton(
+                        tooltip: '快进 10 秒',
+                        onPressed: () => action(context, () => c.seekTo(v.position + const Duration(seconds: 10))),
+                        icon: const Icon(Icons.forward_10, size: 32))),
               if (!v.isPlaying && !v.isBuffering)
                 IconButton.filled(
                     tooltip: '播放',
