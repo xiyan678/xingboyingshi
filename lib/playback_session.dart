@@ -17,7 +17,7 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
   String lineName = '';
   int episodeIndex = 1;
   String? _ownerId;
-  bool mini = false, pipActive = false, ready = false;
+  bool pipActive = false, ready = false;
   String? error;
   int _generation = 0, _lastSaved = -1;
   bool _playReported = false;
@@ -27,6 +27,7 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
   StreamSubscription<PipEvent>? _pipEvents;
   Timer? _pipSave;
   bool _pipReturning = false;
+  bool _pipStarting = false;
   PlaybackSession() {
     WidgetsBinding.instance.addObserver(this);
   }
@@ -37,7 +38,7 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
         episode?.url == e.url &&
         controller != null &&
         ready) {
-      mini = false;
+  
       notifyListeners();
       return;
     }
@@ -50,7 +51,7 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
     _ownerId = lib.accountId;
     lineName = line;
     episodeIndex = index;
-    mini = false;
+
     error = null;
     ready = false;
     _lastSaved = -1;
@@ -60,7 +61,8 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
       return;
     }
-    final c = VideoPlayerController.networkUrl(Uri.parse(e.url));
+    final c = VideoPlayerController.networkUrl(Uri.parse(e.url),
+        videoPlayerOptions: VideoPlayerOptions(allowBackgroundPlayback: true));
     controller = c;
     notifyListeners();
     try {
@@ -118,27 +120,21 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
         forceSync: force));
   }
 
-  void minimize() {
-    if (ready) {
-      mini = true;
-      notifyListeners();
-    }
-  }
-
   Future<void> pauseAndSave() async {
     await controller?.pause();
     save(force: true);
   }
 
   Future<void> enterSystemPip() async {
-    if (pipActive) return;
+    if (pipActive || _pipStarting) return;
     final c = controller, e = episode;
     if (c == null || e == null || !ready) return;
     if (!await pip.isPipSupported()) {
-      throw ServiceError('当前设备不支持系统画中画，可使用应用内小窗');
+      throw ServiceError('当前设备不支持系统画中画');
     }
     final generation = _generation;
     final wasPlaying = c.value.isPlaying;
+    _pipStarting = true;
     try {
       await pip.initialize(e.url);
       if (generation != _generation) {
@@ -149,7 +145,7 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
       await _pipEvents?.cancel();
       _pipEvents = pip.onPipEvent.listen((event) {
         if (event == PipEvent.restoreUI || event == PipEvent.didStop) {
-          unawaited(_restorePip(generation));
+          unawaited(_restorePip(generation, resume: event == PipEvent.restoreUI));
         }
       });
       await pip.seekTo(c.value.position);
@@ -177,10 +173,12 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
       } catch (_) {}
       if (wasPlaying && generation == _generation) await c.play();
       rethrow;
+    } finally {
+      _pipStarting = false;
     }
   }
 
-  Future<void> _restorePip(int generation) async {
+  Future<void> _restorePip(int generation, {bool resume = false}) async {
     if (_pipReturning || !pipActive || generation != _generation) return;
     _pipReturning = true;
     _pipSave?.cancel();
@@ -190,6 +188,7 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
       if (generation != _generation) return;
       await controller?.seekTo(pos);
       save(seconds: pos.inSeconds, force: true);
+      if (resume) await controller?.play();
     } catch (_) {
     } finally {
       if (generation == _generation) {
@@ -204,14 +203,14 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       if (pipActive) unawaited(_checkPipReturn());
-    } else if (!pipActive) {
+    } else if (!pipActive && !_pipStarting) {
       unawaited(pauseAndSave());
     }
   }
 
   Future<void> _checkPipReturn() async {
     try {
-      if (!await pip.isPipActive()) await _restorePip(_generation);
+      if (!await pip.isPipActive()) await _restorePip(_generation, resume: true);
     } catch (_) {}
   }
 
@@ -232,10 +231,11 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
     controller = null;
     old?.removeListener(_tick);
     ready = false;
-    mini = false;
+
     pipActive = false;
     _pipReturning = false;
     if (old != null) await old.dispose();
     notifyListeners();
   }
 }
+

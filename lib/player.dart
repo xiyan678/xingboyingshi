@@ -46,7 +46,7 @@ class _PlayerState extends State<Player> {
           index: widget.episodeIndex);
   @override
   void dispose() {
-    if (!session.mini &&
+    if (
         !session.pipActive &&
         session.episode?.url == widget.episode.url) {
       unawaited(session.pauseAndSave());
@@ -302,14 +302,20 @@ class VideoSurface extends StatelessWidget {
                           if (!mini)
                             PopupMenuButton<String>(
                                 tooltip: '更多',
-                                onSelected: (value) {
+                                onSelected: (value) async {
                                   if (value == 'danmaku') {
                                     showDanmakuSettings(context);
                                   } else if (value == 'send') {
                                     onSendDanmaku?.call();
                                   } else if (value == 'mini') {
-                                    session.minimize();
-                                    Navigator.maybePop(context);
+                                    try {
+                                      await session.enterSystemPip();
+                                    } catch (_) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('桌面小窗未能开启，请检查系统画中画权限后重试')));
+                                      }
+                                    }
                                   }
                                 },
                                 itemBuilder: (_) => const [
@@ -318,7 +324,7 @@ class VideoSurface extends StatelessWidget {
                                   PopupMenuItem(
                                       value: 'send', child: Text('发弹幕')),
                                   PopupMenuItem(
-                                      value: 'mini', child: Text('应用小窗')),
+                                      value: 'mini', child: Text('画中画（桌面小窗）')),
                                 ],
                                 icon: const Icon(Icons.more_horiz)),
                           IconButton(
@@ -338,86 +344,4 @@ class VideoSurface extends StatelessWidget {
   }
 }
 
-// MaterialApp.builder is above Navigator's Overlay. Supply an outer Overlay
-// for the floating player's tooltips, and rebuild its entry with the app child.
-class PlayerOverlayRoot extends StatefulWidget {
-  final Widget child;
-  const PlayerOverlayRoot({super.key, required this.child});
-  @override
-  State<PlayerOverlayRoot> createState() => _PlayerOverlayRootState();
-}
 
-class _PlayerOverlayRootState extends State<PlayerOverlayRoot> {
-  late final OverlayEntry entry = OverlayEntry(builder: (_) => widget.child);
-  @override
-  void didUpdateWidget(covariant PlayerOverlayRoot oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    entry.markNeedsBuild();
-  }
-  @override
-  Widget build(BuildContext context) => Overlay(initialEntries: [entry]);
-  @override
-  void dispose() {
-    entry.remove();
-    entry.dispose();
-    super.dispose();
-  }
-}
-
-class MiniPlayerHost extends StatefulWidget {
-  final Widget child;
-  final VoidCallback onExpand;
-  const MiniPlayerHost(
-      {super.key, required this.child, required this.onExpand});
-  @override
-  State<MiniPlayerHost> createState() => _MiniPlayerHostState();
-}
-
-class _MiniPlayerHostState extends State<MiniPlayerHost> {
-  Offset offset = const Offset(100, 380);
-  @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-      animation: PlaybackSession.instance,
-      builder: (context, _) => LayoutBuilder(builder: (context, c) {
-            final session = PlaybackSession.instance;
-            final width = (c.maxWidth - 24).clamp(180.0, 260.0);
-            final x = offset.dx
-                .clamp(0.0, (c.maxWidth - width).clamp(0.0, double.infinity));
-            final y = offset.dy
-                .clamp(0.0, (c.maxHeight - 210).clamp(0.0, double.infinity));
-            return Stack(children: [
-              widget.child,
-              if (session.mini && session.ready)
-                Positioned(
-                    left: x,
-                    top: y,
-                    width: width,
-                    child: Material(
-                        elevation: 12,
-                        color: Colors.black,
-                        borderRadius: BorderRadius.circular(12),
-                        clipBehavior: Clip.antiAlias,
-                        child: Column(children: [
-                          GestureDetector(
-                              onPanUpdate: (d) => setState(
-                                  () => offset = Offset(x, y) + d.delta),
-                              child: Row(children: [
-                                const Icon(Icons.drag_indicator, size: 20),
-                                Expanded(
-                                    child: Text(session.film?.name ?? '',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(fontSize: 12))),
-                                IconButton(
-                                    tooltip: '关闭小窗',
-                                    onPressed: session.close,
-                                    icon: const Icon(Icons.close, size: 18))
-                              ])),
-                          AspectRatio(
-                              aspectRatio: 16 / 9,
-                              child: VideoSurface(
-                                  mini: true, onFullscreen: widget.onExpand))
-                        ])))
-            ]);
-          }));
-}

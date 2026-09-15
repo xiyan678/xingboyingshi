@@ -33,16 +33,6 @@ class XingboApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
         title: '星播影院',
         navigatorKey: appNavigator,
-        builder: (context, child) => PlayerOverlayRoot(child: MiniPlayerHost(
-            child: child!,
-            onExpand: () {
-              final film = PlaybackSession.instance.film;
-              if (film != null) {
-                appNavigator.currentState?.push(MaterialPageRoute<void>(
-                    builder: (_) =>
-                        DetailPage(api: api, library: library, id: film.id)));
-              }
-            })),
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           useMaterial3: true,
@@ -1399,3 +1389,4 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 }
+

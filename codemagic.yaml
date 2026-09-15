@@ -11,7 +11,7 @@ workflows:
       - name: Check Flutter project
         script: flutter analyze --no-fatal-warnings
       - name: Build Android APK
-        script: flutter build apk --debug --build-name=0.2.6 --build-number=8
+        script: flutter build apk --debug --build-name=0.2.7 --build-number=9
     artifacts:
       - build/app/outputs/flutter-apk/*.apk
       - /tmp/flutter_logs/*.log
@@ -41,9 +41,10 @@ workflows:
       - name: Build signed IPA
         script: |
           flutter build ipa --release \
-            --build-name=0.2.6 \
-            --build-number=8 \
+            --build-name=0.2.7 \
+            --build-number=9 \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
+
