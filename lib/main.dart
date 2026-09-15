@@ -8,6 +8,7 @@ import 'service.dart';
 import 'account.dart';
 import 'playback_session.dart';
 import 'danmaku.dart';
+import 'advertising.dart';
 import 'dart:async';
 
 const gold = Color(0xFFFFD16A);
@@ -32,7 +33,7 @@ class XingboApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
         title: '星播影院',
         navigatorKey: appNavigator,
-        builder: (context, child) => MiniPlayerHost(
+        builder: (context, child) => PlayerOverlayRoot(child: MiniPlayerHost(
             child: child!,
             onExpand: () {
               final film = PlaybackSession.instance.film;
@@ -41,7 +42,7 @@ class XingboApp extends StatelessWidget {
                     builder: (_) =>
                         DetailPage(api: api, library: library, id: film.id)));
               }
-            }),
+            })),
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           useMaterial3: true,
@@ -687,6 +688,7 @@ class _CatalogPageState extends State<CatalogPage> {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
           children: [
             const Brand(),
+            if (!widget.discover) const Advertising(slot: 'home_top'),
             const SizedBox(height: 18),
             TextField(
               controller: search,
@@ -881,6 +883,7 @@ class _CatalogPageState extends State<CatalogPage> {
                 ],
               ] else
                 FilmGrid(films: shown, onOpen: widget.onOpen),
+              if (!widget.discover) const Advertising(slot: 'home_banner'),
               if (page < pages)
                 Padding(
                   padding: const EdgeInsets.only(top: 20),
@@ -1263,6 +1266,7 @@ class _DetailPageState extends State<DetailPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      const Advertising(slot: 'detail'),
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [

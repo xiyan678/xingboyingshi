@@ -17,7 +17,7 @@ namespace think {
     }
 }
 namespace {
-    $cfg=['xingbo.enabled'=>true,'xingbo.token_days'=>30,'database.prefix'=>'mac_','maccms'=>[],'maccms.user'=>[],'maccms.user.status'=>1];
+    $cfg=['xingbo.enabled'=>true,'xingbo.token_days'=>30,'database.prefix'=>'mac_','maccms'=>[],'maccms.user'=>['status'=>1],'maccms.user.status'=>null];
     function config($k){return isset($GLOBALS['cfg'][$k])?$GLOBALS['cfg'][$k]:null;}
     function json($v){return $v;}
     class UserModel {

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'service.dart';
 
 const apiEndpoint = String.fromEnvironment('API_ENDPOINT',
     defaultValue: 'https://xbxx.pro/api.php/provide/vod/');
@@ -80,9 +81,9 @@ class Catalog {
 class FilmApi {
   final http.Client client;
   FilmApi({http.Client? client}) : client = client ?? http.Client();
-  Future<Map<String, dynamic>> request(Map<String, String> query) async {
+  Future<Map<String, dynamic>> request(Map<String, String> query, {String endpoint = apiEndpoint}) async {
     try {
-      final uri = Uri.parse(apiEndpoint).replace(queryParameters: query);
+      final uri = Uri.parse(endpoint).replace(queryParameters: query);
       final response =
           await client.get(uri).timeout(const Duration(seconds: 20));
       if (response.statusCode != 200) throw ApiFailure('服务器暂时不可用，请稍后重试');
@@ -132,7 +133,11 @@ class FilmApi {
     };
     // The built-in Apple CMS V10 provider endpoint is the canonical catalogue.
     // The Xingbo extension remains responsible for accounts, progress and danmaku.
-    final data = await request(params);
+    final filtered = type.isNotEmpty || genre.isNotEmpty || year.isNotEmpty ||
+        area.isNotEmpty || lang.isNotEmpty || letter.isNotEmpty || sort != 'time';
+    final data = filtered
+        ? await request({...params, 'sort': sort}, endpoint: Uri.parse(extensionEndpoint).resolve('catalog').toString())
+        : await request(params);
     return Catalog(
       (data['list'] as List? ?? [])
           .map((v) => Film(Map<String, dynamic>.from(v)))

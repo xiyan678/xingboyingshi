@@ -20,6 +20,10 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
   bool mini = false, pipActive = false, ready = false;
   String? error;
   int _generation = 0, _lastSaved = -1;
+  bool _playReported = false;
+  Future<void> reportPlay() async {
+    try { await AppService.instance.call('play_event', body: {'vod_id': film!.id}); } catch (_) {}
+  }
   StreamSubscription<PipEvent>? _pipEvents;
   Timer? _pipSave;
   bool _pipReturning = false;
@@ -50,6 +54,7 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
     error = null;
     ready = false;
     _lastSaved = -1;
+    _playReported = false;
     if (Uri.tryParse(e.url)?.scheme != 'https') {
       error = '此线路不是 HTTPS 视频地址，请切换线路';
       notifyListeners();
@@ -79,6 +84,10 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
   void _tick() {
     final c = controller;
     if (c == null) return;
+    if (c.value.isPlaying && !_playReported && film != null) {
+      _playReported = true;
+      unawaited(reportPlay());
+    }
     if (c.value.hasError && error == null) {
       error = '播放中断，请切换线路';
       notifyListeners();

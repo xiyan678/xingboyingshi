@@ -11,7 +11,7 @@ workflows:
       - name: Check Flutter project
         script: flutter analyze --no-fatal-warnings
       - name: Build Android APK
-        script: flutter build apk --debug --build-name=0.2.4 --build-number=6
+        script: flutter build apk --debug --build-name=0.2.6 --build-number=8
     artifacts:
       - build/app/outputs/flutter-apk/*.apk
       - /tmp/flutter_logs/*.log
@@ -24,23 +24,25 @@ workflows:
       ios_signing:
         distribution_type: ad_hoc
         bundle_identifier: app.eggplant1907.jet4469
-      flutter: stable
+      flutter: 3.47.4
       xcode: latest
       cocoapods: default
     scripts:
-      - name: Set up iOS signing
-        script: xcode-project use-profiles
       - name: Get Flutter packages
         script: flutter pub get
+      - name: Prepare iOS project
+        script: flutter build ios --config-only --release --no-codesign
       - name: Install CocoaPods dependencies
         script: find ios -name "Podfile" -execdir pod install \;
+      - name: Set up iOS signing
+        script: xcode-project use-profiles
       - name: Check Flutter project
         script: flutter analyze --no-fatal-warnings
       - name: Build signed IPA
         script: |
           flutter build ipa --release \
-            --build-name=0.2.3 \
-            --build-number=5 \
+            --build-name=0.2.6 \
+            --build-number=8 \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - build/ios/ipa/*.ipa

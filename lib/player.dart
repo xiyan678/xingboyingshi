@@ -7,6 +7,7 @@ import 'playback_session.dart';
 import 'danmaku.dart';
 import 'service.dart';
 import 'account.dart';
+import 'advertising.dart';
 
 class Player extends StatefulWidget {
   final Film film;
@@ -95,6 +96,7 @@ class _PlayerState extends State<Player> {
                                                             onFullscreen: () =>
                                                                 Navigator.pop(
                                                                     ctx)))))))))),
+            const Advertising(slot: 'player_bottom'),
           ]));
   Future<void> send(BuildContext context) async {
     final service = AppService.instance;
@@ -333,6 +335,32 @@ class VideoSurface extends StatelessWidget {
                         ])
                       ])))
             ]));
+  }
+}
+
+// MaterialApp.builder is above Navigator's Overlay. Supply an outer Overlay
+// for the floating player's tooltips, and rebuild its entry with the app child.
+class PlayerOverlayRoot extends StatefulWidget {
+  final Widget child;
+  const PlayerOverlayRoot({super.key, required this.child});
+  @override
+  State<PlayerOverlayRoot> createState() => _PlayerOverlayRootState();
+}
+
+class _PlayerOverlayRootState extends State<PlayerOverlayRoot> {
+  late final OverlayEntry entry = OverlayEntry(builder: (_) => widget.child);
+  @override
+  void didUpdateWidget(covariant PlayerOverlayRoot oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    entry.markNeedsBuild();
+  }
+  @override
+  Widget build(BuildContext context) => Overlay(initialEntries: [entry]);
+  @override
+  void dispose() {
+    entry.remove();
+    entry.dispose();
+    super.dispose();
   }
 }
 

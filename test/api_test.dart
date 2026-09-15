@@ -38,13 +38,16 @@ void main() {
         expect(request.url.queryParameters['wd'], '星 & 播');
         expect(request.url.queryParameters['pg'], '2');
         expect(request.url.queryParameters['t'], '6');
+        expect(request.url.path, '/api.php/xingbo/catalog');
+        expect(request.url.queryParameters['class'], '恐怖');
+        expect(request.url.queryParameters['sort'], 'time');
         return http.Response(
           '{"code":1,"pagecount":3,"list":[{"vod_id":7,"vod_name":"Example"}]}',
           200,
         );
       }),
     );
-    final result = await api.list(page: 2, type: '6', keyword: '星 & 播');
+    final result = await api.list(page: 2, type: '6', genre: '恐怖', keyword: '星 & 播');
     expect(result.pages, 3);
     expect(result.films.single.id, '7');
   });

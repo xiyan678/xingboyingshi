@@ -17,6 +17,11 @@ class Xingbo extends Controller
         } catch (\InvalidArgumentException $e) {
             return json(['code'=>$e->getCode() ?: 400,'msg'=>$e->getMessage()]);
         } catch (\Exception $e) {
+            // Keep database details in the private server log, never in API responses.
+            if (strtolower($this->request->action()) === 'catalog') {
+                error_log('[Xingbo catalog] '.get_class($e).': '.$e->getMessage().' at '.$e->getFile().':'.$e->getLine());
+                \think\Log::record('[Xingbo catalog] '.get_class($e).': '.$e->getMessage().' at '.$e->getFile().':'.$e->getLine(), 'error');
+            }
             return json(['code'=>503,'msg'=>'APP 服务暂不可用，请检查扩展配置和数据库迁移']);
         }
     }
@@ -96,7 +101,8 @@ class Xingbo extends Controller
     {
         return $this->runAction(function(){
             $this->postOnly(); $this->rate('login',20,600);
-            if (!config('maccms.user.status')) throw new \InvalidArgumentException('网站用户系统未开启',403);
+            $userConfig=config('maccms.user');
+            if (empty($userConfig['status'])) throw new \InvalidArgumentException('网站用户系统未开启',403);
             $name=trim((string)$this->request->post('name',''));
             $pwd=(string)$this->request->post('password','');
             if (strlen($name)>100||strlen($pwd)>128||$name===''||$pwd==='') throw new \InvalidArgumentException('请输入账号和密码',400);
@@ -140,24 +146,39 @@ class Xingbo extends Controller
         return $this->runAction(function(){
             $page=$this->integer('pg',1,1,100000);
             $type=$this->integer('t',0,0,100000);
-            $query=Db::name('vod')->where('vod_status',1);
+            $conditions=[['vod_status','=',1]];
             if ($type) {
                 $ids=Db::name('type')->where('type_pid',$type)->column('type_id'); $ids[]=$type;
-                $query->where('type_id','in',$ids);
+                $conditions[]=['type_id','in',$ids];
             }
             $keyword=trim((string)$this->request->param('wd',''));
             if (mb_strlen($keyword)>80) throw new \InvalidArgumentException('关键词过长',400);
-            if ($keyword!=='') $query->where('vod_name','like','%'.addcslashes($keyword,'%_\\').'%');
-            foreach(['year'=>'vod_year','area'=>'vod_area','lang'=>'vod_lang'] as $key=>$column) {
+            if ($keyword!=='') $conditions[]=['vod_name','like','%'.addcslashes($keyword,'%_\\').'%'];
+            foreach(['class'=>'vod_class','year'=>'vod_year','area'=>'vod_area','lang'=>'vod_lang','letter'=>'vod_letter'] as $key=>$column) {
                 $value=trim((string)$this->request->param($key,''));
                 if (mb_strlen($value)>40) throw new \InvalidArgumentException('筛选参数过长',400);
-                if ($value!=='') $query->where($column,$value);
+                if ($value!=='') {
+                    if (in_array($key,['class','area','lang'],true)) {
+                        $conditions[]=[$column,'like','%'.addcslashes($value,'%_\\').'%'];
+                    } elseif ($key==='letter' && $value==='0-9') {
+                        $conditions[]=[$column,'in',['0','1','2','3','4','5','6','7','8','9']];
+                    } else { $conditions[]=[$column,'=',$value]; }
+                }
             }
             $sorts=['time'=>'vod_time','hits'=>'vod_hits','score'=>'vod_score'];
             $sort=(string)$this->request->param('sort','time');
             if (!isset($sorts[$sort])) throw new \InvalidArgumentException('排序参数错误',400);
-            $count=(clone $query)->count();
-            $list=$query->order($sorts[$sort].' desc,vod_id desc')->page($page,24)->select();
+            // Do not clone ThinkPHP 5.0 Query: its builder may still bind to
+            // the original query, leaving the clone without PDO parameters.
+            $makeQuery=function() use ($conditions) {
+                $query=Db::name('vod');
+                foreach ($conditions as $condition) {
+                    $query->where($condition[0],$condition[1],$condition[2]);
+                }
+                return $query;
+            };
+            $count=$makeQuery()->count();
+            $list=$makeQuery()->order($sorts[$sort].' desc,vod_id desc')->page($page,24)->select();
             return ['list'=>array_map([$this,'publicFilm'],$list),'pagecount'=>max(1,intval(ceil($count/24))),'total'=>$count];
         });
     }
@@ -237,10 +258,21 @@ class Xingbo extends Controller
             return ['list'=>$rows];
         });
     }
+    public function play_event()
+    {
+        return $this->runAction(function(){
+            $this->postOnly(); $this->rate('play-event',60,600);
+            $this->film($this->integer('vod_id',0,1,2147483647));
+            $prefix=config('database.prefix');
+            if (!preg_match('/^[a-zA-Z0-9_]*$/',$prefix)) throw new \Exception('Invalid prefix');
+            Db::execute('INSERT INTO `'.$prefix.'xb_stats_daily` (stat_date,plays,updated_at) VALUES (?,1,?) ON DUPLICATE KEY UPDATE plays=plays+1,updated_at=VALUES(updated_at)',[date('Y-m-d'),time()]);
+            return [];
+        });
+    }
     public function ad_impression()
     {
         return $this->runAction(function(){
-            $this->postOnly(); $id=$this->integer('id',0,1,2147483647);
+            $this->postOnly(); $this->rate('ad-impression',120,600); $id=$this->integer('id',0,1,2147483647);
             Db::name('xb_ads')->where('id',$id)->where('enabled',1)->setInc('impressions');
             return [];
         });
@@ -248,10 +280,9 @@ class Xingbo extends Controller
     public function ad_click()
     {
         return $this->runAction(function(){
-            $this->postOnly(); $id=$this->integer('id',0,1,2147483647);
+            $this->postOnly(); $this->rate('ad-click',60,600); $id=$this->integer('id',0,1,2147483647);
             Db::name('xb_ads')->where('id',$id)->where('enabled',1)->setInc('clicks');
             return [];
         });
     }
 }
-
