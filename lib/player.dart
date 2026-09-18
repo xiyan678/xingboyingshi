@@ -9,6 +9,9 @@ import 'service.dart';
 import 'account.dart';
 import 'advertising.dart';
 import 'episode_picker.dart';
+import 'immersive_controls.dart';
+import 'fullscreen_player.dart';
+import 'player_gestures.dart';
 
 class Player extends StatefulWidget {
   final Film film;
@@ -32,11 +35,14 @@ class Player extends StatefulWidget {
   State<Player> createState() => _PlayerState();
 }
 
-class _PlayerState extends State<Player> {
+class _PlayerState extends State<Player> with WidgetsBindingObserver {
   final session = PlaybackSession.instance;
+  bool _fullscreenOpen = false;
+  bool _landscapeHandled = false;
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) open();
     });
@@ -50,10 +56,66 @@ class _PlayerState extends State<Player> {
           onCompleted: widget.onNext);
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (!session.pipActive && session.episode?.url == widget.episode.url) {
       unawaited(session.pauseAndSave());
     }
     super.dispose();
+  }
+
+  @override
+  void didChangeMetrics() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final size = MediaQuery.sizeOf(context);
+      if (size.width <= size.height) {
+        _landscapeHandled = false;
+      } else if (!_landscapeHandled &&
+          !_fullscreenOpen &&
+          session.ready &&
+          (ModalRoute.of(context)?.isCurrent ?? false)) {
+        _landscapeHandled = true;
+        unawaited(showFullscreen());
+      }
+    });
+  }
+
+  Future<void> showFullscreen() async {
+    if (_fullscreenOpen) return;
+    _fullscreenOpen = true;
+    _landscapeHandled = true;
+    final select = widget.onSelectEpisode;
+    try {
+      await Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+              builder: (_) => FullscreenPlayer(
+                  builder: (ctx) => AnimatedBuilder(
+                      animation: session,
+                      builder: (surfaceContext, child) => VideoSurface(
+                          onSelectEpisode: select,
+                          onNext: fullscreenNext(select),
+                          fullscreen: true,
+                          onSendDanmaku: () => send(ctx),
+                          onFullscreen: () => Navigator.pop(ctx))))));
+    } finally {
+      _fullscreenOpen = false;
+    }
+  }
+
+  VoidCallback? fullscreenNext(void Function(int, int)? select) {
+    if (select == null) return null;
+    final lines = session.film?.lines ?? <PlayLine>[];
+    for (var line = 0; line < lines.length; line++) {
+      if (lines[line].name != session.lineName) continue;
+      final index = lines[line]
+          .episodes
+          .indexWhere((episode) => episode.url == session.episode?.url);
+      if (index >= 0 && index + 1 < lines[line].episodes.length) {
+        return () => select(line, index + 1);
+      }
+    }
+    return null;
   }
 
   @override
@@ -84,23 +146,7 @@ class _PlayerState extends State<Player> {
                                 onSelectEpisode: widget.onSelectEpisode,
                                 onNext: widget.onNext,
                                 onSendDanmaku: () => send(context),
-                                onFullscreen: () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute<void>(
-                                        builder: (_) => Scaffold(
-                                            backgroundColor: Colors.black,
-                                            body: SafeArea(
-                                                child: AnimatedBuilder(
-                                                    animation: session,
-                                                    builder: (ctx, _) => VideoSurface(
-                                                        onSelectEpisode: widget
-                                                            .onSelectEpisode,
-                                                        fullscreen: true,
-                                                        onSendDanmaku: () =>
-                                                            send(ctx),
-                                                        onFullscreen: () =>
-                                                            Navigator.pop(
-                                                                ctx)))))))))),
+                                onFullscreen: showFullscreen))),
             const Advertising(slot: 'player_bottom'),
           ]));
   Future<void> send(BuildContext context) async {
@@ -110,7 +156,8 @@ class _PlayerState extends State<Player> {
           MaterialPageRoute<void>(builder: (_) => const AccountPage()));
       return;
     }
-    final filmId = widget.film.id, episode = widget.episodeIndex;
+    final filmId = session.film?.id, episode = session.episodeIndex;
+    if (filmId == null) return;
     final position = session
         .sourcePosition(session.controller?.value.position ?? Duration.zero)
         .inMilliseconds;
@@ -156,7 +203,7 @@ class _PlayerState extends State<Player> {
   }
 }
 
-class VideoSurface extends StatelessWidget {
+class VideoSurface extends StatefulWidget {
   final void Function(int line, int episode)? onSelectEpisode;
   final VoidCallback? onNext;
   final VoidCallback? onSendDanmaku;
@@ -170,6 +217,18 @@ class VideoSurface extends StatelessWidget {
       required this.onFullscreen,
       this.fullscreen = false,
       this.mini = false});
+  @override
+  State<VideoSurface> createState() => _VideoSurfaceState();
+}
+
+class _VideoSurfaceState extends State<VideoSurface> {
+  bool locked = false;
+  bool get mini => widget.mini;
+  bool get fullscreen => widget.fullscreen;
+  VoidCallback get onFullscreen => widget.onFullscreen;
+  VoidCallback? get onNext => widget.onNext;
+  VoidCallback? get onSendDanmaku => widget.onSendDanmaku;
+  void Function(int, int)? get onSelectEpisode => widget.onSelectEpisode;
   String clock(Duration d) =>
       '${d.inSeconds ~/ 60}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
   Future<void> selectEpisode(BuildContext context) async {
@@ -204,184 +263,293 @@ class VideoSurface extends StatelessWidget {
   Widget build(BuildContext context) {
     final session = PlaybackSession.instance, c = session.controller;
     if (c == null) return const SizedBox();
-    return ValueListenableBuilder<VideoPlayerValue>(
-        valueListenable: c,
-        builder: (context, v, _) =>
-            Stack(alignment: Alignment.center, children: [
-              Center(
-                  child: AspectRatio(
-                      aspectRatio: v.aspectRatio > 0 ? v.aspectRatio : 16 / 9,
-                      child: VideoPlayer(c))),
-              if (!mini && session.film != null)
-                Positioned.fill(
-                    child: DanmakuLayer(
-                        key: ValueKey(
-                            '${session.film!.id}:${session.episodeIndex}'),
-                        filmId: session.film!.id,
-                        episode: session.episodeIndex,
-                        controller: c,
-                        sourcePosition: session.sourcePosition)),
-              if (v.isBuffering) const CircularProgressIndicator(),
-              if (!mini)
-                Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    child: Container(
-                        padding: const EdgeInsets.fromLTRB(8, 6, 8, 18),
-                        decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [Colors.black87, Colors.transparent])),
-                        child: Row(children: [
-                          IconButton(
-                              tooltip: '返回',
-                              visualDensity: VisualDensity.compact,
-                              onPressed: () => Navigator.maybePop(context),
-                              icon: const Icon(Icons.arrow_back)),
-                          Expanded(
-                              child: Text(
-                                  '${session.film?.name ?? ''}  ${session.episode?.name ?? ''}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600))),
-                          IconButton(
-                              tooltip: '播放设置',
-                              visualDensity: VisualDensity.compact,
-                              onPressed: () => showDanmakuSettings(context),
-                              icon: const Icon(Icons.more_vert)),
-                          if (onSelectEpisode != null)
-                            IconButton(
-                                tooltip: '选集',
-                                visualDensity: VisualDensity.compact,
-                                onPressed: () => selectEpisode(context),
-                                icon: const Icon(Icons.playlist_play))
-                        ]))),
-              if (!mini && v.isPlaying)
-                Positioned(
-                    left: 18,
-                    child: IconButton(
-                        tooltip: '快退 10 秒',
-                        onPressed: () => action(
-                            context,
-                            () => c.seekTo(
-                                v.position - const Duration(seconds: 10))),
-                        icon: const Icon(Icons.replay_10, size: 32))),
-              if (!mini && v.isPlaying)
-                Positioned(
-                    right: 18,
-                    child: IconButton(
-                        tooltip: '快进 10 秒',
-                        onPressed: () => action(
-                            context,
-                            () => c.seekTo(
-                                v.position + const Duration(seconds: 10))),
-                        icon: const Icon(Icons.forward_10, size: 32))),
-              if (!v.isPlaying && !v.isBuffering)
-                IconButton.filled(
-                    tooltip: '播放',
-                    iconSize: mini ? 24 : 40,
-                    onPressed: () => action(context, c.play),
-                    icon: const Icon(Icons.play_arrow)),
-              Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: Container(
-                      color: Colors.black87,
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Column(mainAxisSize: MainAxisSize.min, children: [
-                        if (!mini)
-                          VideoProgressIndicator(c,
-                              allowScrubbing: true,
-                              padding:
-                                  const EdgeInsets.only(top: 10, bottom: 4),
-                              colors: const VideoProgressColors(
-                                  playedColor: Color(0xFFFFD16A))),
-                        Row(children: [
-                          IconButton(
-                              tooltip: v.isPlaying ? '暂停' : '播放',
-                              visualDensity: VisualDensity.compact,
-                              onPressed: () => action(context,
-                                  () => v.isPlaying ? c.pause() : c.play()),
-                              icon: Icon(v.isPlaying
-                                  ? Icons.pause
-                                  : Icons.play_arrow)),
-                          Expanded(
-                              child: Text(
-                                  mini
-                                      ? (session.episode?.name ?? '')
-                                      : '${clock(v.position)} / ${clock(v.duration)}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 11))),
-                          if (!mini)
-                            PopupMenuButton<double>(
-                                tooltip: '倍速',
-                                onSelected: (s) => action(
-                                    context, () => c.setPlaybackSpeed(s)),
-                                itemBuilder: (_) => [0.75, 1.0, 1.25, 1.5, 2.0]
-                                    .map((s) => PopupMenuItem(
-                                        value: s, child: Text('${s}x')))
-                                    .toList(),
-                                child: Padding(
-                                    padding: const EdgeInsets.all(6),
-                                    child: Text('${v.playbackSpeed}x',
-                                        style: const TextStyle(fontSize: 12)))),
-                          if (onNext != null && !mini)
-                            IconButton(
-                                tooltip: '下一集',
-                                visualDensity: VisualDensity.compact,
-                                onPressed: onNext,
-                                icon: const Icon(Icons.skip_next)),
-                          if (!mini)
-                            PopupMenuButton<String>(
-                                tooltip: '更多',
-                                onSelected: (value) async {
-                                  if (value == 'danmaku') {
-                                    showDanmakuSettings(context);
-                                  } else if (value == 'send') {
-                                    onSendDanmaku?.call();
-                                  } else if (value == 'mini') {
-                                    try {
-                                      await session.enterSystemPip();
-                                    } catch (_) {
-                                      if (context.mounted) {
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(const SnackBar(
-                                                content: Text(
-                                                    '桌面小窗未能开启，请检查系统画中画权限后重试')));
-                                      }
-                                    }
-                                  }
-                                },
-                                itemBuilder: (_) => const [
-                                      PopupMenuItem(
-                                          value: 'danmaku',
-                                          child: Text('弹幕设置')),
-                                      PopupMenuItem(
-                                          value: 'send', child: Text('发弹幕')),
-                                      PopupMenuItem(
-                                          value: 'mini',
-                                          child: Text('画中画（桌面小窗）')),
-                                    ],
-                                icon: const Icon(Icons.more_horiz)),
-                          IconButton(
-                              tooltip: fullscreen
-                                  ? '退出全屏'
-                                  : mini
-                                      ? '返回详情'
-                                      : '全屏',
-                              visualDensity: VisualDensity.compact,
-                              onPressed: onFullscreen,
-                              icon: Icon(fullscreen
-                                  ? Icons.fullscreen_exit
-                                  : Icons.fullscreen))
-                        ])
-                      ])))
-            ]));
+    return PopScope(
+        canPop: !locked,
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop && locked) setState(() => locked = false);
+        },
+        child: ImmersiveControls(
+            playback: c,
+            builder: (context, controlsVisible, toggleControls) =>
+                ValueListenableBuilder<VideoPlayerValue>(
+                    valueListenable: c,
+                    builder: (context, v, _) =>
+                        Stack(alignment: Alignment.center, children: [
+                          Center(
+                              child: AspectRatio(
+                                  aspectRatio: v.aspectRatio > 0
+                                      ? v.aspectRatio
+                                      : 16 / 9,
+                                  child: VideoPlayer(c))),
+                          if (!mini && session.film != null)
+                            Positioned.fill(
+                                child: DanmakuLayer(
+                                    key: ValueKey(
+                                        '${session.film!.id}:${session.episodeIndex}'),
+                                    filmId: session.film!.id,
+                                    episode: session.episodeIndex,
+                                    controller: c,
+                                    sourcePosition: session.sourcePosition)),
+                          if (v.isBuffering) const CircularProgressIndicator(),
+                          Positioned.fill(
+                              child: locked
+                                  ? GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onTap: toggleControls,
+                                      child: const SizedBox.expand())
+                                  : PlayerGestures(
+                                      key: ObjectKey(c),
+                                      controller: c,
+                                      onTap: toggleControls)),
+                          if (fullscreen && controlsVisible)
+                            Positioned(
+                                left: MediaQuery.paddingOf(context).left + 12,
+                                top: 70,
+                                child: IconButton.filledTonal(
+                                    tooltip: locked ? '解锁' : '锁定屏幕',
+                                    onPressed: () =>
+                                        setState(() => locked = !locked),
+                                    icon: Icon(locked
+                                        ? Icons.lock
+                                        : Icons.lock_open))),
+                          if (!mini && controlsVisible && !locked)
+                            Positioned(
+                                top: fullscreen
+                                    ? MediaQuery.paddingOf(context).top
+                                    : 0,
+                                left: fullscreen
+                                    ? MediaQuery.paddingOf(context).left
+                                    : 0,
+                                right: fullscreen
+                                    ? MediaQuery.paddingOf(context).right
+                                    : 0,
+                                child: Container(
+                                    padding:
+                                        const EdgeInsets.fromLTRB(8, 6, 8, 18),
+                                    decoration: const BoxDecoration(
+                                        gradient: LinearGradient(
+                                            begin: Alignment.topCenter,
+                                            end: Alignment.bottomCenter,
+                                            colors: [
+                                          Colors.black87,
+                                          Colors.transparent
+                                        ])),
+                                    child: Row(children: [
+                                      IconButton(
+                                          tooltip: '返回',
+                                          visualDensity: VisualDensity.compact,
+                                          onPressed: () =>
+                                              Navigator.maybePop(context),
+                                          icon: const Icon(Icons.arrow_back)),
+                                      Expanded(
+                                          child: Text(
+                                              '${session.film?.name ?? ''}  ${session.episode?.name ?? ''}',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight:
+                                                      FontWeight.w600))),
+                                    ]))),
+                          if (!mini &&
+                              v.isPlaying &&
+                              controlsVisible &&
+                              !locked)
+                            Positioned(
+                                left: 18,
+                                child: IconButton(
+                                    tooltip: '快退 10 秒',
+                                    onPressed: () => action(
+                                        context,
+                                        () => c.seekTo(v.position -
+                                            const Duration(seconds: 10))),
+                                    icon:
+                                        const Icon(Icons.replay_10, size: 32))),
+                          if (!mini &&
+                              v.isPlaying &&
+                              controlsVisible &&
+                              !locked)
+                            Positioned(
+                                right: 18,
+                                child: IconButton(
+                                    tooltip: '快进 10 秒',
+                                    onPressed: () => action(
+                                        context,
+                                        () => c.seekTo(v.position +
+                                            const Duration(seconds: 10))),
+                                    icon: const Icon(Icons.forward_10,
+                                        size: 32))),
+                          if (!v.isPlaying &&
+                              !v.isBuffering &&
+                              controlsVisible &&
+                              !locked)
+                            IconButton.filled(
+                                tooltip: '播放',
+                                iconSize: mini ? 24 : 40,
+                                onPressed: () => action(context, c.play),
+                                icon: const Icon(Icons.play_arrow)),
+                          if ((controlsVisible || mini) && !locked)
+                            Positioned(
+                                bottom: fullscreen
+                                    ? MediaQuery.paddingOf(context).bottom
+                                    : 0,
+                                left: fullscreen
+                                    ? MediaQuery.paddingOf(context).left
+                                    : 0,
+                                right: fullscreen
+                                    ? MediaQuery.paddingOf(context).right
+                                    : 0,
+                                child: Container(
+                                    decoration: const BoxDecoration(
+                                        gradient: LinearGradient(
+                                            begin: Alignment.topCenter,
+                                            end: Alignment.bottomCenter,
+                                            colors: [
+                                          Colors.transparent,
+                                          Colors.black54
+                                        ])),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 4),
+                                    child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          if (!mini)
+                                            VideoProgressIndicator(c,
+                                                allowScrubbing: true,
+                                                padding: const EdgeInsets.only(
+                                                    top: 10, bottom: 4),
+                                                colors:
+                                                    const VideoProgressColors(
+                                                        playedColor:
+                                                            Color(0xFFFFD16A))),
+                                          Row(children: [
+                                            IconButton(
+                                                tooltip:
+                                                    v.isPlaying ? '暂停' : '播放',
+                                                visualDensity:
+                                                    VisualDensity.compact,
+                                                onPressed: () => action(
+                                                    context,
+                                                    () => v.isPlaying
+                                                        ? c.pause()
+                                                        : c.play()),
+                                                icon: Icon(v.isPlaying
+                                                    ? Icons.pause
+                                                    : Icons.play_arrow)),
+                                            Expanded(
+                                                child: Text(
+                                                    mini
+                                                        ? (session.episode
+                                                                ?.name ??
+                                                            '')
+                                                        : '${clock(v.position)} / ${clock(v.duration)}',
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: const TextStyle(
+                                                        fontSize: 11))),
+                                            if (!mini)
+                                              PopupMenuButton<double>(
+                                                  tooltip: '倍速',
+                                                  onSelected: (s) => action(
+                                                      context,
+                                                      () => c.setPlaybackSpeed(
+                                                          s)),
+                                                  itemBuilder: (_) => [
+                                                        0.75,
+                                                        1.0,
+                                                        1.25,
+                                                        1.5,
+                                                        2.0
+                                                      ]
+                                                          .map((s) =>
+                                                              PopupMenuItem(
+                                                                  value: s,
+                                                                  child: Text(
+                                                                      '${s}x')))
+                                                          .toList(),
+                                                  child: Padding(
+                                                      padding:
+                                                          const EdgeInsets.all(
+                                                              6),
+                                                      child: Text(
+                                                          '${v.playbackSpeed}x',
+                                                          style: const TextStyle(
+                                                              fontSize: 12)))),
+                                            if (onNext != null && !mini)
+                                              IconButton(
+                                                  tooltip: '下一集',
+                                                  visualDensity:
+                                                      VisualDensity.compact,
+                                                  onPressed: onNext,
+                                                  icon: const Icon(
+                                                      Icons.skip_next)),
+                                            if (!mini &&
+                                                onSelectEpisode != null)
+                                              IconButton(
+                                                  tooltip: '选集',
+                                                  visualDensity:
+                                                      VisualDensity.compact,
+                                                  onPressed: () =>
+                                                      selectEpisode(context),
+                                                  icon: const Icon(
+                                                      Icons.playlist_play)),
+                                            if (!mini)
+                                              PopupMenuButton<String>(
+                                                  tooltip: '更多',
+                                                  onSelected: (value) async {
+                                                    if (value == 'danmaku') {
+                                                      showDanmakuSettings(
+                                                          context);
+                                                    } else if (value ==
+                                                        'send') {
+                                                      onSendDanmaku?.call();
+                                                    } else if (value ==
+                                                        'mini') {
+                                                      try {
+                                                        await session
+                                                            .enterSystemPip();
+                                                      } catch (_) {
+                                                        if (context.mounted) {
+                                                          ScaffoldMessenger.of(
+                                                                  context)
+                                                              .showSnackBar(
+                                                                  const SnackBar(
+                                                                      content: Text(
+                                                                          '桌面小窗未能开启，请检查系统画中画权限后重试')));
+                                                        }
+                                                      }
+                                                    }
+                                                  },
+                                                  itemBuilder: (_) => const [
+                                                        PopupMenuItem(
+                                                            value: 'danmaku',
+                                                            child:
+                                                                Text('弹幕设置')),
+                                                        PopupMenuItem(
+                                                            value: 'send',
+                                                            child: Text('发弹幕')),
+                                                        PopupMenuItem(
+                                                            value: 'mini',
+                                                            child: Text(
+                                                                '画中画（桌面小窗）')),
+                                                      ],
+                                                  icon: const Icon(
+                                                      Icons.more_horiz)),
+                                            IconButton(
+                                                tooltip: fullscreen
+                                                    ? '退出全屏'
+                                                    : mini
+                                                        ? '返回详情'
+                                                        : '全屏',
+                                                visualDensity:
+                                                    VisualDensity.compact,
+                                                onPressed: onFullscreen,
+                                                icon: Icon(fullscreen
+                                                    ? Icons.fullscreen_exit
+                                                    : Icons.fullscreen))
+                                          ])
+                                        ])))
+                        ]))));
   }
 }

@@ -44,7 +44,7 @@ workflows:
         script: |
           flutter build ipa --release \
             --build-name=0.2.7 \
-            --build-number=10 \
+            --build-number=11 \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - build/ios/ipa/*.ipa
@@ -66,7 +66,7 @@ workflows:
           flutter analyze
           flutter test
       - name: Compile iOS without signing
-        script: flutter build ios --release --no-codesign --build-name=0.2.7 --build-number=10
+        script: flutter build ios --release --no-codesign --build-name=0.2.7 --build-number=11
       - name: Archive unsigned application for inspection
         script: ditto -c -k --keepParent build/ios/iphoneos/Runner.app build/ios/unsigned-Runner.zip
     artifacts:
