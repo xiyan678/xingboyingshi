@@ -42,6 +42,7 @@ class _PlayerState extends State<Player> with WidgetsBindingObserver {
   final session = PlaybackSession.instance;
   bool _fullscreenOpen = false;
   bool _landscapeHandled = false;
+  bool _autoFullscreenSuppressed = false;
   @override
   void initState() {
     super.initState();
@@ -75,6 +76,7 @@ class _PlayerState extends State<Player> with WidgetsBindingObserver {
       if (size.width <= size.height) {
         _landscapeHandled = false;
       } else if (!_landscapeHandled &&
+          !_autoFullscreenSuppressed &&
           !_fullscreenOpen &&
           session.ready &&
           (ModalRoute.of(context)?.isCurrent ?? false)) {
@@ -101,8 +103,11 @@ class _PlayerState extends State<Player> with WidgetsBindingObserver {
                           onNext: fullscreenNext(select),
                           fullscreen: true,
                           onSendDanmaku: () => send(ctx),
-                          onFullscreen: () => Navigator.pop(ctx))))));
+                          onFullscreen: () => FullscreenPlayer.exit(ctx))))));
     } finally {
+      // An explicit exit must win over the phone still being held sideways.
+      // Manual fullscreen remains available from the player button.
+      _autoFullscreenSuppressed = true;
       _fullscreenOpen = false;
     }
   }
@@ -354,8 +359,10 @@ class _VideoSurfaceState extends State<VideoSurface> {
                                       IconButton(
                                           tooltip: '返回',
                                           visualDensity: VisualDensity.compact,
-                                          onPressed: () =>
-                                              Navigator.maybePop(context),
+                                          onPressed: fullscreen
+                                              ? onFullscreen
+                                              : () =>
+                                                  Navigator.maybePop(context),
                                           icon: const Icon(Icons.arrow_back)),
                                       Expanded(
                                           child: Text(

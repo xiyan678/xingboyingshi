@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -90,5 +91,41 @@ void main() {
     final exitOrientation = calls
         .lastWhere((c) => c.method == 'SystemChrome.setPreferredOrientations');
     expect(exitOrientation.arguments, ['DeviceOrientation.portraitUp']);
+  });
+
+  testWidgets('fullscreen waits for portrait before closing', (tester) async {
+    final portraitReady = Completer<void>();
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'SystemChrome.setPreferredOrientations' &&
+          '${call.arguments}' == '[DeviceOrientation.portraitUp]') {
+        await portraitReady.future;
+      }
+      return null;
+    });
+    addTearDown(() =>
+        messenger.setMockMethodCallHandler(SystemChannels.platform, null));
+    await tester.pumpWidget(MaterialApp(
+        home: Builder(
+            builder: (context) => TextButton(
+                onPressed: () => Navigator.push<void>(
+                    context,
+                    MaterialPageRoute<void>(
+                        builder: (_) => FullscreenPlayer(
+                            builder: (fullscreenContext) => TextButton(
+                                onPressed: () =>
+                                    FullscreenPlayer.exit(fullscreenContext),
+                                child: const Text('Exit fullscreen'))))),
+                child: const Text('Open fullscreen')))));
+    await tester.tap(find.text('Open fullscreen'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Exit fullscreen'));
+    await tester.pump();
+    expect(find.text('Exit fullscreen'), findsOneWidget);
+    portraitReady.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Exit fullscreen'), findsNothing);
+    expect(find.text('Open fullscreen'), findsOneWidget);
   });
 }
