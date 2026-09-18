@@ -4,6 +4,17 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val releaseKeystorePath = providers.environmentVariable("XINGBO_KEYSTORE").orNull
+val releaseStorePassword = providers.environmentVariable("XINGBO_STORE_PASSWORD").orNull
+val releaseKeyAlias = providers.environmentVariable("XINGBO_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.environmentVariable("XINGBO_KEY_PASSWORD").orNull
+val hasReleaseSigning = listOf(
+    releaseKeystorePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { !it.isNullOrBlank() }
+
 android {
     namespace = "pro.xbxx.xingbo_app"
     compileSdk = flutter.compileSdkVersion
@@ -29,11 +40,24 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseKeystorePath!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // Configure the owner's release certificate before distributing a release.
-            // Debug builds use the standard local debug certificate.
-            signingConfig = null
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                null
+            }
         }
     }
 }
