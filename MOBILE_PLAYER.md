@@ -1,4 +1,4 @@
-# Mobile player update (iOS cloud build 12)
+# Mobile player update (iOS cloud build 13)
 
 Reference: Tencent Video mobile-app usage documentation, not the desktop player
 and not the user's comparison screenshots.
@@ -45,3 +45,7 @@ real-device verification.
 
 Automatic HLS ad filtering remains enabled in the normal source preparation
 path and does not depend on either new option.
+
+Build 13 fixes fullscreen exit while the device remains sideways. An explicit
+back/exit returns the detail page to portrait and does not immediately reopen
+fullscreen. Orientation restrictions are released when leaving the player page.

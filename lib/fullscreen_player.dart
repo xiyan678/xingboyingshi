@@ -24,7 +24,12 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
   @override
   void dispose() {
     unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
-    unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
+    // Keep the detail page portrait after an explicit fullscreen exit. If all
+    // orientations are restored while the phone is still held sideways, the
+    // metrics listener immediately opens fullscreen again.
+    unawaited(SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+    ]));
     super.dispose();
   }
 

@@ -87,6 +87,8 @@ void main() {
             (c.arguments as List).contains('DeviceOrientation.landscapeLeft')),
         isTrue);
     await tester.pumpWidget(const SizedBox());
-    expect(calls.last.arguments, contains('DeviceOrientation.portraitUp'));
+    final exitOrientation = calls
+        .lastWhere((c) => c.method == 'SystemChrome.setPreferredOrientations');
+    expect(exitOrientation.arguments, ['DeviceOrientation.portraitUp']);
   });
 }

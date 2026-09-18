@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import 'api.dart';
 import 'library.dart';
@@ -59,6 +60,7 @@ class _PlayerState extends State<Player> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
     if (!session.pipActive && session.episode?.url == widget.episode.url) {
       unawaited(session.pauseAndSave());
     }
