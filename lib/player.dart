@@ -12,6 +12,8 @@ import 'episode_picker.dart';
 import 'immersive_controls.dart';
 import 'fullscreen_player.dart';
 import 'player_gestures.dart';
+import 'player_options.dart';
+import 'playback_rules.dart';
 
 class Player extends StatefulWidget {
   final Film film;
@@ -259,6 +261,18 @@ class _VideoSurfaceState extends State<VideoSurface> {
     }
   }
 
+  Future<void> showSkipSettings(BuildContext context) async {
+    final session = PlaybackSession.instance;
+    final filmId = session.film?.id;
+    final settings = await showModalBottomSheet<SkipSettings>(
+        context: context,
+        isScrollControlled: true,
+        builder: (_) => SkipSettingsSheet(settings: session.skipSettings));
+    if (settings != null && context.mounted && session.film?.id == filmId) {
+      await action(context, () => session.updateSkipSettings(settings));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final session = PlaybackSession.instance, c = session.controller;
@@ -498,7 +512,22 @@ class _VideoSurfaceState extends State<VideoSurface> {
                                               PopupMenuButton<String>(
                                                   tooltip: '更多',
                                                   onSelected: (value) async {
-                                                    if (value == 'danmaku') {
+                                                    if (value == 'skip') {
+                                                      await showSkipSettings(
+                                                          context);
+                                                    } else if (value ==
+                                                        'sleep') {
+                                                      await showModalBottomSheet<
+                                                              void>(
+                                                          context: context,
+                                                          isScrollControlled:
+                                                              true,
+                                                          builder: (_) =>
+                                                              SleepTimerSheet(
+                                                                  timer: session
+                                                                      .sleepTimer));
+                                                    } else if (value ==
+                                                        'danmaku') {
                                                       showDanmakuSettings(
                                                           context);
                                                     } else if (value ==
@@ -522,6 +551,14 @@ class _VideoSurfaceState extends State<VideoSurface> {
                                                     }
                                                   },
                                                   itemBuilder: (_) => const [
+                                                        PopupMenuItem(
+                                                            value: 'skip',
+                                                            child:
+                                                                Text('片头片尾')),
+                                                        PopupMenuItem(
+                                                            value: 'sleep',
+                                                            child:
+                                                                Text('定时关闭')),
                                                         PopupMenuItem(
                                                             value: 'danmaku',
                                                             child:

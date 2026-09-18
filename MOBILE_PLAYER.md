@@ -1,4 +1,4 @@
-# Mobile player update (iOS cloud build 11)
+# Mobile player update (iOS cloud build 12)
 
 Reference: Tencent Video mobile-app usage documentation, not the desktop player
 and not the user's comparison screenshots.
@@ -23,3 +23,25 @@ No new Tencent branding, membership, download, casting, brightness or volume
 gestures have been added. Current validation is Flutter analysis and widget
 tests on Windows. iPhone landscape/rotation, safe-area layout and PiP still
 require cloud Xcode compilation and device verification.
+
+## Playback options
+
+The bottom More menu now includes per-film intro/outro skipping and a sleep
+timer. Intro/outro skipping is opt-in: the user sets durations in 5-second steps
+(0-300 seconds each), stored separately per film and account. Source timestamps
+are mapped through the existing HLS ad cuts. Short episodes with overlapping
+intro/outro ranges are left intact. An intentional rewind after the initial
+intro skip is allowed. This does not detect credits from video/audio content.
+
+Sleep choices: finish this episode, finish two episodes including this one,
+or stop after 15/30/60/90 minutes of wall-clock time (including pauses).
+Manual switches do not consume an episode; automatic credits skipping does.
+The sleep limit wins over automatic next-episode playback. At the last available
+episode it stops even if two were requested. Limits are session-only and can
+be cancelled or replaced. Stop pauses media and saves progress, not force-quits
+the app. Native PiP is stopped as well; Android PiP boundaries use position
+polling and may be up to a second late. Background and PiP timing still need
+real-device verification.
+
+Automatic HLS ad filtering remains enabled in the normal source preparation
+path and does not depend on either new option.

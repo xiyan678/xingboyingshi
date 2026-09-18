@@ -17,6 +17,7 @@ dependency_overrides:
   video_player_avfoundation:
     path: third_party/video_player_avfoundation
 dev_dependencies:
+  video_player_platform_interface: ^6.9.0
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
