@@ -49,11 +49,13 @@ class DanmakuLayer extends StatefulWidget {
   final String filmId;
   final int episode;
   final VideoPlayerController controller;
+  final Duration Function(Duration)? sourcePosition;
   const DanmakuLayer(
       {super.key,
       required this.filmId,
       required this.episode,
-      required this.controller});
+      required this.controller,
+      this.sourcePosition});
   @override
   State<DanmakuLayer> createState() => _DanmakuLayerState();
 }
@@ -64,6 +66,10 @@ class _DanmakuLayerState extends State<DanmakuLayer> {
   int window = -1, lastPoll = 0;
   bool fetching = false;
   int request = 0;
+  int get positionMs {
+    final position = widget.controller.value.position;
+    return (widget.sourcePosition?.call(position) ?? position).inMilliseconds;
+  }
   @override
   void initState() {
     super.initState();
@@ -80,7 +86,7 @@ class _DanmakuLayerState extends State<DanmakuLayer> {
         fetching) {
       return;
     }
-    final position = widget.controller.value.position.inMilliseconds;
+    final position = positionMs;
     final from = math.max(0, (position ~/ 30000) * 30000 - 15000);
     final now = DateTime.now().millisecondsSinceEpoch;
     if (from == window && now - lastPoll < 15000) return;
@@ -121,7 +127,7 @@ class _DanmakuLayerState extends State<DanmakuLayer> {
       builder: (context, _) {
         final settings = DanmakuSettings.instance;
         if (!settings.enabled) return const SizedBox.shrink();
-        final position = widget.controller.value.position.inMilliseconds;
+        final position = positionMs;
         return IgnorePointer(
             child: ClipRect(child: LayoutBuilder(builder: (context, c) {
           final visible = visibleDanmaku(

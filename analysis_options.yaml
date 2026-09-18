@@ -15,6 +15,9 @@ analyzer:
     - android/**
     - ios/**
     - web/**
+    - third_party/video_player_avfoundation/example/**
+    - third_party/video_player_avfoundation/test/**
+    - third_party/video_player_avfoundation/pigeons/**
 
 linter:
   # The lint rules applied to this project can be customized in the

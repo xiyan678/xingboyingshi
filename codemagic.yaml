@@ -17,7 +17,7 @@ workflows:
       - /tmp/flutter_logs/*.log
 
   xingbo-ios-adhoc:
-    name: Xingbo iOS signed IPA
+    name: Xingbo iOS auto ad filter signed IPA
     max_build_duration: 120
     instance_type: mac_mini_m2
     environment:
@@ -37,14 +37,39 @@ workflows:
       - name: Set up iOS signing
         script: xcode-project use-profiles
       - name: Check Flutter project
-        script: flutter analyze --no-fatal-warnings
+        script: flutter analyze
+      - name: Test playlist filtering and application
+        script: flutter test
       - name: Build signed IPA
         script: |
           flutter build ipa --release \
             --build-name=0.2.7 \
-            --build-number=9 \
+            --build-number=10 \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+  xingbo-ios-verify:
+    name: Xingbo iOS unsigned compile check
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    environment:
+      flutter: 3.47.4
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Analyze and test
+        script: |
+          flutter analyze
+          flutter test
+      - name: Compile iOS without signing
+        script: flutter build ios --release --no-codesign --build-name=0.2.7 --build-number=10
+      - name: Archive unsigned application for inspection
+        script: ditto -c -k --keepParent build/ios/iphoneos/Runner.app build/ios/unsigned-Runner.zip
+    artifacts:
+      - build/ios/unsigned-Runner.zip
       - /tmp/xcodebuild_logs/*.log
 

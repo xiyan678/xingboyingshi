@@ -8,6 +8,7 @@ import 'danmaku.dart';
 import 'service.dart';
 import 'account.dart';
 import 'advertising.dart';
+import 'episode_picker.dart';
 
 class Player extends StatefulWidget {
   final Film film;
@@ -16,6 +17,7 @@ class Player extends StatefulWidget {
   final int resumeSeconds, episodeIndex;
   final String lineName;
   final VoidCallback? onNext;
+  final void Function(int line, int episode)? onSelectEpisode;
   const Player(
       {super.key,
       required this.film,
@@ -24,7 +26,8 @@ class Player extends StatefulWidget {
       this.resumeSeconds = 0,
       this.episodeIndex = 1,
       this.lineName = '',
-      this.onNext});
+      this.onNext,
+      this.onSelectEpisode});
   @override
   State<Player> createState() => _PlayerState();
 }
@@ -43,12 +46,11 @@ class _PlayerState extends State<Player> {
       session.open(widget.film, widget.episode, widget.library,
           resume: widget.resumeSeconds,
           line: widget.lineName,
-          index: widget.episodeIndex);
+          index: widget.episodeIndex,
+          onCompleted: widget.onNext);
   @override
   void dispose() {
-    if (
-        !session.pipActive &&
-        session.episode?.url == widget.episode.url) {
+    if (!session.pipActive && session.episode?.url == widget.episode.url) {
       unawaited(session.pauseAndSave());
     }
     super.dispose();
@@ -79,6 +81,7 @@ class _PlayerState extends State<Player> {
                         : !session.ready
                             ? const Center(child: CircularProgressIndicator())
                             : VideoSurface(
+                                onSelectEpisode: widget.onSelectEpisode,
                                 onNext: widget.onNext,
                                 onSendDanmaku: () => send(context),
                                 onFullscreen: () => Navigator.push(
@@ -89,13 +92,15 @@ class _PlayerState extends State<Player> {
                                             body: SafeArea(
                                                 child: AnimatedBuilder(
                                                     animation: session,
-                                                    builder: (ctx, _) =>
-                                                        VideoSurface(
-                                                            fullscreen: true,
-                                                            onSendDanmaku: () => send(ctx),
-                                                            onFullscreen: () =>
-                                                                Navigator.pop(
-                                                                    ctx)))))))))),
+                                                    builder: (ctx, _) => VideoSurface(
+                                                        onSelectEpisode: widget
+                                                            .onSelectEpisode,
+                                                        fullscreen: true,
+                                                        onSendDanmaku: () =>
+                                                            send(ctx),
+                                                        onFullscreen: () =>
+                                                            Navigator.pop(
+                                                                ctx)))))))))),
             const Advertising(slot: 'player_bottom'),
           ]));
   Future<void> send(BuildContext context) async {
@@ -106,7 +111,9 @@ class _PlayerState extends State<Player> {
       return;
     }
     final filmId = widget.film.id, episode = widget.episodeIndex;
-    final position = session.controller?.value.position.inMilliseconds ?? 0;
+    final position = session
+        .sourcePosition(session.controller?.value.position ?? Duration.zero)
+        .inMilliseconds;
     final text = TextEditingController();
     final content = await showDialog<String>(
         context: context,
@@ -150,6 +157,7 @@ class _PlayerState extends State<Player> {
 }
 
 class VideoSurface extends StatelessWidget {
+  final void Function(int line, int episode)? onSelectEpisode;
   final VoidCallback? onNext;
   final VoidCallback? onSendDanmaku;
   final VoidCallback onFullscreen;
@@ -157,12 +165,29 @@ class VideoSurface extends StatelessWidget {
   const VideoSurface(
       {super.key,
       this.onNext,
+      this.onSelectEpisode,
       this.onSendDanmaku,
       required this.onFullscreen,
       this.fullscreen = false,
       this.mini = false});
   String clock(Duration d) =>
       '${d.inSeconds ~/ 60}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
+  Future<void> selectEpisode(BuildContext context) async {
+    final session = PlaybackSession.instance;
+    final lines = session.film?.lines ?? <PlayLine>[];
+    if (lines.isEmpty) return;
+    final choice = await showModalBottomSheet<EpisodeChoice>(
+        context: context,
+        isScrollControlled: true,
+        builder: (_) => EpisodePicker(
+            lines: lines,
+            currentUrl: session.episode?.url ?? '',
+            currentLine: session.lineName));
+    if (choice != null && context.mounted) {
+      onSelectEpisode?.call(choice.line, choice.episode);
+    }
+  }
+
   Future<void> action(
       BuildContext context, Future<void> Function() task) async {
     try {
@@ -194,7 +219,8 @@ class VideoSurface extends StatelessWidget {
                             '${session.film!.id}:${session.episodeIndex}'),
                         filmId: session.film!.id,
                         episode: session.episodeIndex,
-                        controller: c)),
+                        controller: c,
+                        sourcePosition: session.sourcePosition)),
               if (v.isBuffering) const CircularProgressIndicator(),
               if (!mini)
                 Positioned(
@@ -226,21 +252,33 @@ class VideoSurface extends StatelessWidget {
                               tooltip: '播放设置',
                               visualDensity: VisualDensity.compact,
                               onPressed: () => showDanmakuSettings(context),
-                              icon: const Icon(Icons.more_vert))
+                              icon: const Icon(Icons.more_vert)),
+                          if (onSelectEpisode != null)
+                            IconButton(
+                                tooltip: '选集',
+                                visualDensity: VisualDensity.compact,
+                                onPressed: () => selectEpisode(context),
+                                icon: const Icon(Icons.playlist_play))
                         ]))),
               if (!mini && v.isPlaying)
                 Positioned(
                     left: 18,
                     child: IconButton(
                         tooltip: '快退 10 秒',
-                        onPressed: () => action(context, () => c.seekTo(v.position - const Duration(seconds: 10))),
+                        onPressed: () => action(
+                            context,
+                            () => c.seekTo(
+                                v.position - const Duration(seconds: 10))),
                         icon: const Icon(Icons.replay_10, size: 32))),
               if (!mini && v.isPlaying)
                 Positioned(
                     right: 18,
                     child: IconButton(
                         tooltip: '快进 10 秒',
-                        onPressed: () => action(context, () => c.seekTo(v.position + const Duration(seconds: 10))),
+                        onPressed: () => action(
+                            context,
+                            () => c.seekTo(
+                                v.position + const Duration(seconds: 10))),
                         icon: const Icon(Icons.forward_10, size: 32))),
               if (!v.isPlaying && !v.isBuffering)
                 IconButton.filled(
@@ -312,20 +350,24 @@ class VideoSurface extends StatelessWidget {
                                       await session.enterSystemPip();
                                     } catch (_) {
                                       if (context.mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text('桌面小窗未能开启，请检查系统画中画权限后重试')));
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(const SnackBar(
+                                                content: Text(
+                                                    '桌面小窗未能开启，请检查系统画中画权限后重试')));
                                       }
                                     }
                                   }
                                 },
                                 itemBuilder: (_) => const [
-                                  PopupMenuItem(
-                                      value: 'danmaku', child: Text('弹幕设置')),
-                                  PopupMenuItem(
-                                      value: 'send', child: Text('发弹幕')),
-                                  PopupMenuItem(
-                                      value: 'mini', child: Text('画中画（桌面小窗）')),
-                                ],
+                                      PopupMenuItem(
+                                          value: 'danmaku',
+                                          child: Text('弹幕设置')),
+                                      PopupMenuItem(
+                                          value: 'send', child: Text('发弹幕')),
+                                      PopupMenuItem(
+                                          value: 'mini',
+                                          child: Text('画中画（桌面小窗）')),
+                                    ],
                                 icon: const Icon(Icons.more_horiz)),
                           IconButton(
                               tooltip: fullscreen
@@ -343,5 +385,3 @@ class VideoSurface extends StatelessWidget {
             ]));
   }
 }
-
-

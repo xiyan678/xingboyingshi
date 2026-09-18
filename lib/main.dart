@@ -1236,6 +1236,13 @@ class _DetailPageState extends State<DetailPage> {
                     library: widget.library,
                     lineName: lines[lineIndex].name,
                     episodeIndex: episodeIndex + 1,
+                    onSelectEpisode: (selectedLine, selectedEpisode) {
+                      if (!mounted) return;
+                      setState(() {
+                        lineIndex = selectedLine;
+                        episodeIndex = selectedEpisode;
+                      });
+                    },
                     resumeSeconds: record != null &&
                             (record.url == episode.url ||
                                 (record.lineName == lines[lineIndex].name &&

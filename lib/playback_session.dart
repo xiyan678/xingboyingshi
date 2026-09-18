@@ -6,11 +6,19 @@ import 'package:native_picture_in_picture/pip_event.dart';
 import 'api.dart';
 import 'library.dart';
 import 'service.dart';
+import 'ad_free_source.dart';
+import 'ios_shared_pip.dart';
+import 'package:flutter/foundation.dart';
 
 class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
   static final instance = PlaybackSession();
   final pip = NativePictureInPicture();
+  final _iosPip = IosSharedPip();
+  bool get _usesSharedPip => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
   VideoPlayerController? controller;
+  AdFreeSource? _playbackSource;
+  Duration sourcePosition(Duration position) =>
+      _playbackSource?.toSource(position) ?? position;
   Film? film;
   Episode? episode;
   Library? library;
@@ -21,6 +29,9 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
   String? error;
   int _generation = 0, _lastSaved = -1;
   bool _playReported = false;
+  VoidCallback? _onCompleted;
+  bool _completionHandled = false;
+  String? _autoAdvanceFilmId;
   Future<void> reportPlay() async {
     try { await AppService.instance.call('play_event', body: {'vod_id': film!.id}); } catch (_) {}
   }
@@ -30,18 +41,31 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
   bool _pipStarting = false;
   PlaybackSession() {
     WidgetsBinding.instance.addObserver(this);
+    _iosPip.onStopped = (id, restore) {
+      // Pinned video_player 2.14 exposes the native ID for this local bridge.
+      // ignore: invalid_use_of_visible_for_testing_member
+      if (controller?.playerId != id) return;
+      pipActive = false;
+      if (!restore) unawaited(pauseAndSave());
+      save(force: true);
+      notifyListeners();
+    };
   }
   Future<void> open(Film f, Episode e, Library lib,
-      {int resume = 0, String line = '', int index = 1}) async {
+      {int resume = 0, String line = '', int index = 1,
+      VoidCallback? onCompleted}) async {
     if (film?.id == f.id &&
         _ownerId == lib.accountId &&
         episode?.url == e.url &&
         controller != null &&
         ready) {
+      _onCompleted = onCompleted;
   
       notifyListeners();
       return;
     }
+    final playAutomatically = _autoAdvanceFilmId == f.id;
+    _autoAdvanceFilmId = null;
     final generation = ++_generation;
     await close(increment: false);
     if (generation != _generation) return;
@@ -56,24 +80,39 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
     ready = false;
     _lastSaved = -1;
     _playReported = false;
+    _completionHandled = false;
+    _onCompleted = onCompleted;
     if (Uri.tryParse(e.url)?.scheme != 'https') {
       error = '此线路不是 HTTPS 视频地址，请切换线路';
       notifyListeners();
       return;
     }
-    final c = VideoPlayerController.networkUrl(Uri.parse(e.url),
+    notifyListeners();
+    final prepared = await prepareAdFreeSource(Uri.parse(e.url));
+    if (generation != _generation) {
+      await prepared.dispose();
+      return;
+    }
+    _playbackSource = prepared;
+    final c = VideoPlayerController.networkUrl(prepared.uri,
+        formatHint: prepared.playlist != null ? VideoFormat.hls : null,
         videoPlayerOptions: VideoPlayerOptions(allowBackgroundPlayback: true));
     controller = c;
     notifyListeners();
     try {
       await c.initialize().timeout(const Duration(seconds: 30));
       if (generation != _generation) return;
-      if (resume > 0 && resume < c.value.duration.inSeconds - 5) {
-        await c.seekTo(Duration(seconds: resume));
+      final resumePosition = playAutomatically ? Duration.zero :
+          prepared.toPlayback(Duration(seconds: resume));
+      if (resumePosition > Duration.zero &&
+          resumePosition < c.value.duration - const Duration(seconds: 5)) {
+        await c.seekTo(resumePosition);
       }
       if (generation != _generation) return;
       c.addListener(_tick);
       ready = true;
+      if (playAutomatically) await c.play();
+      if (generation != _generation) return;
       notifyListeners();
     } catch (_) {
       if (generation == _generation) {
@@ -86,6 +125,19 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
   void _tick() {
     final c = controller;
     if (c == null) return;
+    if (ready && c.value.isCompleted && !c.value.hasError &&
+        !_completionHandled && _onCompleted != null &&
+        (!pipActive || _usesSharedPip)) {
+      _completionHandled = true;
+      final generation = _generation;
+      final advance = _onCompleted!;
+      scheduleMicrotask(() {
+        if (generation != _generation || controller != c) return;
+        save(force: true);
+        _autoAdvanceFilmId = film?.id;
+        advance();
+      });
+    }
     if (c.value.isPlaying && !_playReported && film != null) {
       _playReported = true;
       unawaited(reportPlay());
@@ -94,7 +146,7 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
       error = '播放中断，请切换线路';
       notifyListeners();
     }
-    if (!pipActive &&
+    if ((!pipActive || _usesSharedPip) &&
         c.value.isInitialized &&
         (c.value.position.inSeconds - _lastSaved).abs() >= 5) {
       _lastSaved = c.value.position.inSeconds;
@@ -112,7 +164,10 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
     if (lib.accountId != _ownerId) return;
-    final pos = seconds ?? c.value.position.inSeconds;
+    final pos = sourcePosition(seconds == null
+            ? c.value.position
+            : Duration(seconds: seconds))
+        .inSeconds;
     if (pos <= 0) return;
     unawaited(lib.remember(
         WatchRecord(f, e.url, e.name, pos,
@@ -129,6 +184,27 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
     if (pipActive || _pipStarting) return;
     final c = controller, e = episode;
     if (c == null || e == null || !ready) return;
+    if (_usesSharedPip) {
+      final generation = _generation;
+      final wasPlaying = c.value.isPlaying;
+      _pipStarting = true;
+      try {
+        await c.play();
+        if (generation != _generation) return;
+        // Same native ID is used by the vendored AVFoundation player registry.
+        // ignore: invalid_use_of_visible_for_testing_member
+        await _iosPip.start(c.playerId);
+        if (generation != _generation) return;
+        pipActive = true;
+        notifyListeners();
+      } catch (_) {
+        if (!wasPlaying && generation == _generation) await c.pause();
+        rethrow;
+      } finally {
+        _pipStarting = false;
+      }
+      return;
+    }
     if (!await pip.isPipSupported()) {
       throw ServiceError('当前设备不支持系统画中画');
     }
@@ -136,7 +212,7 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
     final wasPlaying = c.value.isPlaying;
     _pipStarting = true;
     try {
-      await pip.initialize(e.url);
+      await pip.initialize((_playbackSource?.uri ?? Uri.parse(e.url)).toString());
       if (generation != _generation) {
         await pip.dispose();
         return;
@@ -202,7 +278,7 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      if (pipActive) unawaited(_checkPipReturn());
+      if (pipActive && !_usesSharedPip) unawaited(_checkPipReturn());
     } else if (!pipActive && !_pipStarting) {
       unawaited(pauseAndSave());
     }
@@ -215,12 +291,18 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> close({bool increment = true}) async {
-    if (increment) _generation++;
+    if (increment) {
+      _generation++;
+      _autoAdvanceFilmId = null;
+    }
+    _onCompleted = null;
     save(force: true);
     _pipSave?.cancel();
     await _pipEvents?.cancel();
     _pipEvents = null;
-    if (pipActive) {
+    if (_usesSharedPip) {
+      await _iosPip.close();
+    } else if (pipActive) {
       try {
         save(seconds: (await pip.getPosition()).inSeconds, force: true);
         await pip.stopPiP();
@@ -228,6 +310,8 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
       } catch (_) {}
     }
     final old = controller;
+    final oldSource = _playbackSource;
+    _playbackSource = null;
     controller = null;
     old?.removeListener(_tick);
     ready = false;
@@ -235,6 +319,7 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
     pipActive = false;
     _pipReturning = false;
     if (old != null) await old.dispose();
+    await oldSource?.dispose();
     notifyListeners();
   }
 }
