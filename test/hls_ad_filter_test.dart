@@ -40,70 +40,13 @@ String synthetic(
 }
 
 void main() {
-  test('real source loses only the 14 known ads; all normal URLs stay in order',
-      () {
-    final result = filterHlsAds(fixture, media)!;
-    expect(result.removedSegments, 14);
-    expect(result.cuts, hasLength(2));
-    expect(result.cuts[0].start.inMilliseconds, 297800);
-    expect(result.cuts[0].end.inMilliseconds, 323500);
-    expect(result.cuts[1].start.inMilliseconds, 2002660);
-    expect(result.cuts[1].end.inMilliseconds, 2028360);
-    expect(result.removedDuration.inMilliseconds, 51400);
-    final original = segments(fixture);
-    final cleaned = segments(result.text);
-    expect(original, hasLength(717));
-    expect(cleaned, hasLength(703));
-    expect(
-        cleaned,
-        original
-            .where((line) =>
-                !RegExp(r'51b815aafe805117(0[3-9]|1[0-6])\.ts$').hasMatch(line))
-            .map((line) => media.resolve(line).toString())
-            .toList());
-    expect(RegExp(r'^#EXTINF:', multiLine: true).allMatches(result.text).length,
-        703);
-    expect(result.text.endsWith('#EXT-X-ENDLIST\n'), isTrue);
-    expect(result.text.contains('#EXT-X-DISCONTINUITY\n#EXT-X-DISCONTINUITY'),
-        isFalse);
-  });
-
-  test('source and cleaned clocks agree before/inside/after both ad blocks',
-      () {
-    final result = filterHlsAds(fixture, media)!;
-    for (final ms in [0, 297799, 323500, 500000, 2002659, 2028360, 2500000]) {
-      final position = Duration(milliseconds: ms);
-      expect(result.toSource(result.toPlayback(position)), position);
-    }
-    expect(
-        result.toPlayback(const Duration(milliseconds: 307000)).inMilliseconds,
-        297800);
-    expect(result.toSource(const Duration(milliseconds: 297800)).inMilliseconds,
-        323500);
-    expect(
-        result.toPlayback(const Duration(milliseconds: 2010000)).inMilliseconds,
-        1976960);
-    expect(
-        result.toSource(const Duration(milliseconds: 1976960)).inMilliseconds,
-        2028360);
-  });
-
-  test('detection is independent of title path, filename prefix and CDN', () {
-    for (final uri in [
-      media.replace(host: 'another.example'),
-      media.replace(port: 444),
-      media.replace(path: '/different-title/mixed.m3u8'),
-    ]) {
-      expect(
-          filterHlsAds(fixture.replaceAll('51b815aafe', 'fresh_title_'), uri)
-              ?.removedSegments,
-          14);
-    }
+  test('real Breaking Bad playlist keeps all 46:58 of unmarked content', () {
+    expect(segments(fixture), hasLength(717));
+    expect(filterHlsAds(fixture, media), isNull);
   });
 
   test('clean, live, encrypted or malformed playlists are untouched', () {
     for (final text in [
-      filterHlsAds(fixture, media)!.text,
       fixture.replaceAll('#EXT-X-ENDLIST', ''),
       fixture.replaceFirst(
           '#EXTINF:', '#EXT-X-KEY:METHOD=AES-128,URI="key"\n#EXTINF:'),
@@ -123,62 +66,14 @@ void main() {
     final signed = fixture.replaceAllMapped(
         RegExp(r'^[^#\r\n]+\.ts$', multiLine: true),
         (match) => '${media.resolve(match[0]!)}?token=a%2Bb&expires=123');
-    final result = filterHlsAds(signed, media)!;
-    expect(result.removedSegments, 14);
-    expect(
-        segments(result.text)
-            .every((s) => s.endsWith('?token=a%2Bb&expires=123')),
-        isTrue);
+    expect(filterHlsAds(signed, media), isNull);
   });
 
-  test('foreign ad CDN is detected when the main sequence resumes intact', () {
+  test('a different CDN is not enough evidence to delete video', () {
     final external = fixture.replaceAllMapped(
         RegExp(r'^51b815aafe805[^\r\n]+', multiLine: true),
         (match) => 'https://other.example/${match[0]}');
-    expect(filterHlsAds(external, media)?.removedSegments, 14);
-  });
-
-  test('four real videos have independently computed ad positions', () {
-    final cases = [
-      ('lfthirtytwo-mixed.m3u8', 297800, 2002660),
-      ('sports-mixed.m3u8', 296920, 2004060),
-      ('episode1-mixed.m3u8', 299360, 2003740),
-      ('episode2-mixed.m3u8', 297880, 2002460),
-    ];
-    for (final item in cases) {
-      final input = File('test/fixtures/${item.$1}').readAsStringSync();
-      final result = filterHlsAds(
-          input, Uri.parse('https://new-source.example/${item.$1}'))!;
-      expect(result.cuts, hasLength(2), reason: item.$1);
-      expect(
-          result.cuts.map((c) => c.start.inMilliseconds), [item.$2, item.$3]);
-      expect(result.removedSegments, 14);
-      expect(result.removedDuration.inMilliseconds, 51400);
-      final original = segments(input);
-      expect(segments(result.text).length, original.length - 14);
-    }
-  });
-
-  test('ad locations and lengths change freely for each video', () {
-    for (final at in [7, 31, 75, 136, 172]) {
-      for (final length in [2, 7, 13]) {
-        final text = synthetic(
-            insertAt: at,
-            adCount: length,
-            adSeconds: 7,
-            stem: 'film${at}part_');
-        final result = filterHlsAds(text, media)!;
-        expect(result.removedSegments, length);
-        expect(result.cuts.single.start.inSeconds, at * 5);
-        expect(result.removedDuration.inSeconds, length * 7);
-        expect(
-            segments(result.text),
-            segments(text)
-                .where((line) => !line.startsWith('sponsor_'))
-                .map((line) => media.resolve(line).toString())
-                .toList());
-      }
-    }
+    expect(filterHlsAds(external, media), isNull);
   });
 
   test(
@@ -215,6 +110,29 @@ void main() {
 
   test('single-variant master becomes a private local HLS file and cleans up',
       () async {
+    final marked = synthetic(insertAt: 50, cue: true);
+    final markedMedia = media.replace(path: '/marked.m3u8');
+    final markedMaster = markedMedia.resolve('master.m3u8');
+    final markedClient = MockClient((request) async => http.Response(
+        request.url == markedMaster
+            ? '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nmarked.m3u8\n'
+            : marked,
+        200));
+    final prepared =
+        await prepareLocalAdFreeSource(markedMaster, client: markedClient);
+    expect(prepared.uri.scheme, 'file');
+    expect(prepared.playlist?.removedSegments, 6);
+    final file = File.fromUri(prepared.uri);
+    expect(await file.exists(), isTrue);
+    expect(await file.readAsString(), prepared.playlist!.text);
+    await prepared.dispose();
+    await prepared.dispose();
+    expect(await file.parent.exists(), isFalse);
+    markedClient.close();
+  });
+
+  test('unmarked real source uses original URL without any shortened copy',
+      () async {
     final requests = <Uri>[];
     final client = MockClient((request) async {
       requests.add(request.url);
@@ -226,14 +144,8 @@ void main() {
     });
     final prepared = await prepareLocalAdFreeSource(master, client: client);
     expect(requests, [master, media]);
-    expect(prepared.uri.scheme, 'file');
-    expect(prepared.playlist?.removedSegments, 14);
-    final file = File.fromUri(prepared.uri);
-    expect(await file.exists(), isTrue);
-    expect(await file.readAsString(), prepared.playlist!.text);
-    await prepared.dispose();
-    await prepared.dispose();
-    expect(await file.parent.exists(), isFalse);
+    expect(prepared.uri, master);
+    expect(prepared.playlist, isNull);
     client.close();
   });
 

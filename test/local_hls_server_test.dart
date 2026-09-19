@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -36,8 +35,15 @@ void main() {
 
   test('iOS preparation serves filtered HLS and preserves the source clock',
       () async {
-    final fixture =
-        File('test/fixtures/lfthirtytwo-mixed.m3u8').readAsStringSync();
+    const fixture = '#EXTM3U\n'
+        '#EXT-X-TARGETDURATION:10\n'
+        '#EXTINF:10,\nmain0.ts\n'
+        '#EXT-X-CUE-OUT:20\n'
+        '#EXTINF:10,\nad0.ts\n'
+        '#EXTINF:10,\nad1.ts\n'
+        '#EXT-X-CUE-IN\n'
+        '#EXTINF:10,\nmain1.ts\n'
+        '#EXT-X-ENDLIST\n';
     final source = Uri.parse('https://example.com/video/mixed.m3u8');
     final transport = MockClient((_) async => http.Response(fixture, 200));
     final prepared = await prepareLocalAdFreeSource(source,
@@ -45,12 +51,12 @@ void main() {
     addTearDown(prepared.dispose);
     addTearDown(transport.close);
     expect(prepared.uri.host, '127.0.0.1');
-    expect(prepared.playlist?.removedSegments, 14);
+    expect(prepared.playlist?.removedSegments, 2);
     final response = await http.get(prepared.uri);
     expect(response.body, prepared.playlist!.text);
     expect(response.body, contains('https://example.com/video/'));
-    expect(prepared.toSource(const Duration(milliseconds: 297800)),
-        const Duration(milliseconds: 323500));
+    expect(prepared.toSource(const Duration(seconds: 10)),
+        const Duration(seconds: 30));
     await prepared.dispose();
     await prepared.dispose();
   });
