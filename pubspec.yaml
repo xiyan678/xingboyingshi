@@ -1,7 +1,7 @@
 name: xingbo_app
 description: 星播影院双端客户端
 publish_to: none
-version: 0.2.7+15
+version: 0.2.7+16
 environment:
   sdk: '>=3.4.0 <4.0.0'
 dependencies:

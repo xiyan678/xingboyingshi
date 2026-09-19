@@ -40,9 +40,13 @@ String synthetic(
 }
 
 void main() {
-  test('real Breaking Bad playlist keeps all 46:58 of unmarked content', () {
+  test('real numbered playlist removes only two proven inserted runs', () {
     expect(segments(fixture), hasLength(717));
-    expect(filterHlsAds(fixture, media), isNull);
+    final result = filterHlsAds(fixture, media)!;
+    expect(result.removedSegments, 14);
+    expect(result.cuts, hasLength(2));
+    expect(result.removedDuration, const Duration(milliseconds: 51400));
+    expect(segments(result.text), hasLength(703));
   });
 
   test('clean, live, encrypted or malformed playlists are untouched', () {
@@ -66,18 +70,21 @@ void main() {
     final signed = fixture.replaceAllMapped(
         RegExp(r'^[^#\r\n]+\.ts$', multiLine: true),
         (match) => '${media.resolve(match[0]!)}?token=a%2Bb&expires=123');
-    expect(filterHlsAds(signed, media), isNull);
+    final result = filterHlsAds(signed, media)!;
+    expect(result.removedSegments, 14);
+    expect(result.text, contains('?token=a%2Bb&expires=123'));
   });
 
   test('a different CDN is not enough evidence to delete video', () {
     final external = fixture.replaceAllMapped(
-        RegExp(r'^51b815aafe805[^\r\n]+', multiLine: true),
+        RegExp(r'^51b815aafe80001[^\r\n]+', multiLine: true),
         (match) => 'https://other.example/${match[0]}');
-    expect(filterHlsAds(external, media), isNull);
+    final result = filterHlsAds(external, media)!;
+    expect(result.removedSegments, 14);
+    expect(result.text, contains('https://other.example/'));
   });
 
-  test(
-      'ordinary discontinuities and sequence restarts never suffice for removal',
+  test('ordinary discontinuities and sequence restarts do not prove a splice',
       () {
     expect(filterHlsAds(synthetic(adCount: 0), media), isNull);
     expect(filterHlsAds(synthetic(boundaries: false), media), isNull);
@@ -94,6 +101,15 @@ void main() {
       return 'scene_${number >= 50 && number < 9000 ? number + 6 : number}.ts';
     });
     expect(filterHlsAds(noRestoredSequence, media), isNull);
+  });
+
+  test('a short consecutive island with exact main resumption is removed', () {
+    final result = filterHlsAds(synthetic(), media)!;
+    expect(result.removedSegments, 6);
+    expect(result.removedDuration, const Duration(seconds: 30));
+    expect(result.text, isNot(contains('sponsor_9000.ts')));
+    expect(result.text, contains('episode_49.ts'));
+    expect(result.text, contains('episode_50.ts'));
   });
 
   test('explicit cue markers cover preroll and do not need numeric filenames',
@@ -131,8 +147,7 @@ void main() {
     markedClient.close();
   });
 
-  test('unmarked real source uses original URL without any shortened copy',
-      () async {
+  test('proven numbered splice becomes a private filtered HLS file', () async {
     final requests = <Uri>[];
     final client = MockClient((request) async {
       requests.add(request.url);
@@ -144,8 +159,9 @@ void main() {
     });
     final prepared = await prepareLocalAdFreeSource(master, client: client);
     expect(requests, [master, media]);
-    expect(prepared.uri, master);
-    expect(prepared.playlist, isNull);
+    expect(prepared.uri.scheme, 'file');
+    expect(prepared.playlist?.removedSegments, 14);
+    await prepared.dispose();
     client.close();
   });
 

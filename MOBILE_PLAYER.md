@@ -1,4 +1,4 @@
-# Mobile player update (iOS cloud build 15)
+# Mobile player update (iOS cloud build 16)
 
 Reference: Tencent Video mobile-app usage documentation, not the desktop player
 and not the user's comparison screenshots.
@@ -52,9 +52,8 @@ After an explicit exit, automatic landscape entry remains suppressed for that
 detail page, while the manual fullscreen button continues to work. Orientation
 restrictions are released when leaving the player page.
 
-Build 15 removes structural ad guessing after a real playlist showed that the
-same 51.4-second filename/discontinuity pattern can contain normal episode
-content. The filter now removes only intervals explicitly marked by paired HLS
-`CUE-OUT`/`CUE-IN` tags. Unmarked playlists use the original URL and duration;
-filename changes, sequence gaps, CDN changes and discontinuities never trigger
-deletion. This deliberately prefers missed ads over lost video content.
+Build 16 recognizes explicit HLS ad cues and high-confidence numbered splices.
+A splice is removed only when a short independent sequence is surrounded by
+long consecutive main-video runs and playback resumes at exactly the next main
+segment. Discontinuities, CDN changes, duration, or a sequence gap alone never
+remove video.
