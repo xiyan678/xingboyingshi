@@ -57,3 +57,8 @@ A splice is removed only when a short independent sequence is surrounded by
 long consecutive main-video runs and playback resumes at exactly the next main
 segment. Discontinuities, CDN changes, duration, or a sequence gap alone never
 remove video.
+
+Filtering is playlist-segment based. It skips only independently inserted,
+full-frame ad clips; logos, corner promotions, subtitles, and other watermarks
+embedded in normal episode frames are intentionally preserved. No image
+cropping, masking, OCR, or frame-level alteration is performed.
