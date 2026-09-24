@@ -277,16 +277,21 @@ class Xingbo extends Controller
         $cacheKey='xingbo_ext_dm_'.intval($film['vod_id']).'_'.intval($episode);
         $cached=Cache::get($cacheKey);
         if (is_array($cached)) return $cached;
-        $title=trim((string)$film['vod_name']);
-        $year=trim((string)$film['vod_year']);
-        $query=$title.($year!==''?' '.$year:'');
-        $search=$this->externalJson($base.'/search/episodes?anime='.rawurlencode($query).'&episode='.intval($episode));
-        if (!$search || empty($search['animes']) || !is_array($search['animes'])) return [];
         $episodeId=0;
-        foreach ($search['animes'] as $anime) {
-            if (empty($anime['episodes']) || !is_array($anime['episodes'])) continue;
-            foreach ($anime['episodes'] as $candidate) {
-                if (!empty($candidate['episodeId'])) {$episodeId=intval($candidate['episodeId']);break 2;}
+        $title=trim((string)$film['vod_name']);
+        $queries=[$title];
+        $withoutYear=trim(preg_replace('/(?:19|20)\d{2}$/u','',$title));
+        $baseTitle=trim(preg_replace('/(?:第[一二三四五六七八九十百0-9]+季|[\s·:_：-]*年番)$/u','',$withoutYear));
+        if ($withoutYear!=='' && $withoutYear!==$title) $queries[]=$withoutYear;
+        if ($baseTitle!=='' && !in_array($baseTitle,$queries,true)) $queries[]=$baseTitle;
+        foreach ($queries as $query) {
+            $search=$this->externalJson($base.'/search/episodes?anime='.rawurlencode($query).'&episode='.intval($episode).'&v2=true');
+            if (!$search || empty($search['animes']) || !is_array($search['animes'])) continue;
+            foreach ($search['animes'] as $anime) {
+                if (empty($anime['episodes']) || !is_array($anime['episodes'])) continue;
+                foreach ($anime['episodes'] as $candidate) {
+                    if (!empty($candidate['episodeId'])) {$episodeId=intval($candidate['episodeId']);break 3;}
+                }
             }
         }
         if ($episodeId<1) return [];
