@@ -1,7 +1,7 @@
-星播影院 iOS 0.2.6（构建号 8）云端源码包
+星播影院 iOS 0.3.5（构建号 21）云端源码
 
 这是供 Codemagic 编译的源码 ZIP，不是可以直接安装的 IPA。
-包含新版筛选、播放上报、广告显示和 iOS 广告链接打开支持。
+包含当前播放器、筛选、播放上报、弹幕、画中画、广告显示和 iOS 广告链接打开支持。
 网站需要安装配套宝塔 0.2.6 更新包。
 
 1. 解压 ZIP。把内容更新到你现有的 xiyan678/xingboyingshi GitHub 项目根目录，保持 codemagic.yaml、pubspec.yaml、ios、lib 在同一级；不要再套一层文件夹。
@@ -14,7 +14,7 @@
 5. Start new build，选择更新的分支、工作流 xingbo-ios-adhoc，然后开始构建。
 6. 成功后从 Artifacts 下载 build/ios/ipa 下的 IPA，再安装到描述文件绑定的设备。
 
-固定使用 Flutter 3.47.4，版本号 0.2.6，构建号 8，最低 iOS 15。
+固定使用 Flutter 3.47.4，版本号与构建号读取 pubspec.yaml，最低 iOS 15。
 源码包不包含证书、密码、本机缓存或 Android APK。
 已完成本机 Flutter 检查；Windows 无法运行 Xcode，iOS 编译、签名、真机播放和广告跳转仍需云端及设备验证。
 此版本没有新增手机旋转自动全屏和控制栏自动隐藏功能。

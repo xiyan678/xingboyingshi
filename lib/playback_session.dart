@@ -289,6 +289,9 @@ class PlaybackSession extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> enterSystemPip() async {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      throw ServiceError('电脑版请使用窗口播放；桌面画中画尚未接入');
+    }
     if (pipActive || _pipStarting) return;
     final c = controller, e = episode;
     if (c == null || e == null || !ready) return;

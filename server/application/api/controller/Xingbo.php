@@ -253,9 +253,16 @@ class Xingbo extends Controller
 
     protected function externalJson($url)
     {
+        $appId=trim((string)config('xingbo.external_danmaku_app_id'));
+        $appSecret=trim((string)config('xingbo.external_danmaku_app_secret'));
+        if ($appId==='' || $appSecret==='') return null;
+        if (preg_match('/[\r\n]/',$appId.$appSecret)) return null;
         $context=stream_context_create(['http'=>[
             'method'=>'GET','timeout'=>6,'ignore_errors'=>true,
-            'header'=>"Accept: application/json\r\nUser-Agent: XingboCinema/1.0\r\n"
+            'header'=>"Accept: application/json\r\n".
+                "User-Agent: XingboCinema/1.0\r\n".
+                "X-AppId: ".$appId."\r\n".
+                "X-AppSecret: ".$appSecret."\r\n"
         ]]);
         $raw=@file_get_contents($url,false,$context);
         if ($raw===false || strlen($raw)>8388608) return null;

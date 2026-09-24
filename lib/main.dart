@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
@@ -10,14 +11,33 @@ import 'playback_session.dart';
 import 'danmaku.dart';
 import 'advertising.dart';
 import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'package:window_manager/window_manager.dart';
 
-const gold = Color(0xFFFFD16A);
-const ink = Color(0xFF0C101A);
-const panel = Color(0xFF171D2A);
+const gold = Color(0xFF20E07A);
+const ink = Color(0xFF0F1012);
+const panel = Color(0xFF1B1D20);
 final appNavigator = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (!kIsWeb && defaultTargetPlatform != TargetPlatform.windows) {
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+    ]);
+  }
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+    await windowManager.ensureInitialized();
+    await windowManager.waitUntilReadyToShow(
+        const WindowOptions(
+            size: Size(1200, 800),
+            minimumSize: Size(800, 600),
+            center: true,
+            title: '星播影院'), () async {
+      await windowManager.show();
+      await windowManager.focus();
+    });
+  }
   final library = Library(await SharedPreferences.getInstance());
   library.attach(AppService.instance);
   runApp(XingboApp(api: FilmApi(), library: library));
@@ -39,7 +59,7 @@ class XingboApp extends StatelessWidget {
           brightness: Brightness.dark,
           scaffoldBackgroundColor: ink,
           colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF458BFF),
+            seedColor: gold,
             brightness: Brightness.dark,
             surface: panel,
           ),
@@ -49,7 +69,25 @@ class XingboApp extends StatelessWidget {
           ),
           navigationBarTheme: const NavigationBarThemeData(
             backgroundColor: panel,
-            indicatorColor: Color(0xFF244269),
+            indicatorColor: Color(0xFF174A32),
+          ),
+          navigationRailTheme: const NavigationRailThemeData(
+            backgroundColor: Color(0xFF151719),
+            indicatorColor: Color(0xFF174A32),
+            selectedIconTheme: IconThemeData(color: gold),
+            selectedLabelTextStyle:
+                TextStyle(color: gold, fontWeight: FontWeight.w600),
+          ),
+          filledButtonTheme: FilledButtonThemeData(
+            style: FilledButton.styleFrom(
+                backgroundColor: gold, foregroundColor: Colors.black),
+          ),
+          chipTheme: ChipThemeData(
+            selectedColor: const Color(0xFF174A32),
+            backgroundColor: const Color(0xFF24272B),
+            side: BorderSide.none,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
           ),
           inputDecorationTheme: InputDecorationTheme(
             filled: true,
@@ -82,8 +120,9 @@ class _ShellState extends State<Shell> {
         ),
       );
   @override
-  Widget build(BuildContext context) => Scaffold(
-        body: IndexedStack(
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, size) {
+        final desktop = size.maxWidth >= 900;
+        final pages = IndexedStack(
           index: tab,
           children: [
             CatalogPage(api: widget.api, onOpen: open),
@@ -216,29 +255,59 @@ class _ShellState extends State<Shell> {
               ),
             ),
           ],
-        ),
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: tab,
-          onDestinationSelected: (i) => setState(() => tab = i),
-          destinations: const [
-            NavigationDestination(
+        );
+        const destinations = [
+          NavigationDestination(
               icon: Icon(Icons.home_outlined),
               selectedIcon: Icon(Icons.home_rounded),
-              label: '首页',
-            ),
-            NavigationDestination(
+              label: '首页'),
+          NavigationDestination(
               icon: Icon(Icons.grid_view_outlined),
               selectedIcon: Icon(Icons.grid_view_rounded),
-              label: '找片',
-            ),
-            NavigationDestination(
+              label: '找片'),
+          NavigationDestination(
               icon: Icon(Icons.person_outline),
               selectedIcon: Icon(Icons.person),
-              label: '我的',
-            ),
-          ],
-        ),
-      );
+              label: '我的'),
+        ];
+        return Scaffold(
+          body: desktop
+              ? Row(children: [
+                  NavigationRail(
+                    selectedIndex: tab,
+                    onDestinationSelected: (i) => setState(() => tab = i),
+                    labelType: NavigationRailLabelType.all,
+                    leading: const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 18),
+                        child: Brand()),
+                    destinations: const [
+                      NavigationRailDestination(
+                          icon: Icon(Icons.home_outlined),
+                          selectedIcon: Icon(Icons.home_rounded),
+                          label: Text('首页')),
+                      NavigationRailDestination(
+                          icon: Icon(Icons.grid_view_outlined),
+                          selectedIcon: Icon(Icons.grid_view_rounded),
+                          label: Text('找片')),
+                      NavigationRailDestination(
+                          icon: Icon(Icons.person_outline),
+                          selectedIcon: Icon(Icons.person),
+                          label: Text('我的')),
+                    ],
+                  ),
+                  const VerticalDivider(width: 1),
+                  Expanded(child: pages),
+                ])
+              : pages,
+          bottomNavigationBar: desktop
+              ? null
+              : NavigationBar(
+                  selectedIndex: tab,
+                  onDestinationSelected: (i) => setState(() => tab = i),
+                  destinations: destinations,
+                ),
+        );
+      });
 }
 
 class Brand extends StatelessWidget {
@@ -603,6 +672,7 @@ class _CatalogPageState extends State<CatalogPage> {
 
   @override
   Widget build(BuildContext context) {
+    final desktop = MediaQuery.sizeOf(context).width >= 900;
     final shown = films;
     final currentYear = DateTime.now().year;
     final filterYears = years
@@ -675,32 +745,39 @@ class _CatalogPageState extends State<CatalogPage> {
       child: RefreshIndicator(
         onRefresh: () => load(),
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          padding:
+              EdgeInsets.fromLTRB(desktop ? 34 : 16, 12, desktop ? 34 : 16, 24),
           children: [
-            const Brand(),
+            if (!desktop) const Brand(),
             if (!widget.discover) const Advertising(slot: 'home_top'),
-            const SizedBox(height: 18),
-            TextField(
-              controller: search,
-              textInputAction: TextInputAction.search,
-              onSubmitted: (s) {
-                keyword = s.trim();
-                year = '';
-                area = '';
-                load();
-              },
-              decoration: InputDecoration(
-                hintText: '搜索电影、剧集',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: IconButton(
-                  tooltip: '搜索',
-                  icon: const Icon(Icons.arrow_forward),
-                  onPressed: () {
-                    keyword = search.text.trim();
+            SizedBox(height: desktop ? 8 : 18),
+            Align(
+              alignment: desktop ? Alignment.center : Alignment.centerLeft,
+              child: SizedBox(
+                width: desktop ? 560 : double.infinity,
+                child: TextField(
+                  controller: search,
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: (s) {
+                    keyword = s.trim();
                     year = '';
                     area = '';
                     load();
                   },
+                  decoration: InputDecoration(
+                    hintText: '搜索电影、电视剧、综艺、动漫',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: IconButton(
+                      tooltip: '搜索',
+                      icon: const Icon(Icons.search, color: gold),
+                      onPressed: () {
+                        keyword = search.text.trim();
+                        year = '';
+                        area = '';
+                        load();
+                      },
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -896,14 +973,14 @@ class HeroBanner extends StatelessWidget {
   const HeroBanner({super.key, required this.films, required this.onOpen});
   @override
   Widget build(BuildContext context) => SizedBox(
-        height: 330,
+        height: MediaQuery.sizeOf(context).width >= 900 ? 430 : 330,
         child: PageView(
           children: films
               .map(
                 (f) => Padding(
                   padding: const EdgeInsets.only(right: 6),
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(10),
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
@@ -930,7 +1007,7 @@ class HeroBanner extends StatelessWidget {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: const Text(
-                              '星播精选',
+                              '热播精选',
                               style: TextStyle(color: gold),
                             ),
                           ),
@@ -960,7 +1037,7 @@ class HeroBanner extends StatelessWidget {
                               FilledButton.icon(
                                 onPressed: () => onOpen(f),
                                 icon: const Icon(Icons.play_arrow),
-                                label: const Text('查看影片'),
+                                label: const Text('立即播放'),
                               ),
                             ],
                           ),
@@ -1013,9 +1090,23 @@ class FilmGrid extends StatelessWidget {
           physics: const NeverScrollableScrollPhysics(),
           itemCount: films.length,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: c.maxWidth > 700 ? 5 : 3,
-            mainAxisExtent:
-                (c.maxWidth > 700 ? c.maxWidth / 5 : c.maxWidth / 3) * 1.5 + 58,
+            crossAxisCount: c.maxWidth > 1300
+                ? 7
+                : c.maxWidth > 950
+                    ? 6
+                    : c.maxWidth > 700
+                        ? 5
+                        : 3,
+            mainAxisExtent: (c.maxWidth /
+                        (c.maxWidth > 1300
+                            ? 7
+                            : c.maxWidth > 950
+                                ? 6
+                                : c.maxWidth > 700
+                                    ? 5
+                                    : 3)) *
+                    1.5 +
+                58,
             crossAxisSpacing: 10,
             mainAxisSpacing: 14,
           ),
@@ -1396,4 +1487,3 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 }
-

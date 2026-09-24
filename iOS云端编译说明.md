@@ -1,8 +1,8 @@
-# 星播 iOS 自动去插播与画中画优化版
+# 星播 iOS 云端编译版
 
-版本 0.2.7，云端构建号 16，Bundle ID 沿用 `app.eggplant1907.jet4469`。
+当前版本 0.3.5，云端构建号 21，Bundle ID 沿用 `app.eggplant1907.jet4469`。Codemagic 会直接读取 `pubspec.yaml` 中的版本号与构建号。
 
-这是 Codemagic 云端编译源码包，不是已签名 IPA。选集、下一集、倍速和更多操作放在播放器底部，普通播放和全屏都能切换集数及线路。保留原有自动去插播功能；其他页面保持原样。
+这是 Codemagic 云端编译源码，不是已签名 IPA。普通页面保持竖屏，点击播放器右下角全屏按钮后进入横屏；播放器包含选集、下一集、弹幕、倍速、画中画、播放记忆、片头片尾和定时关闭，并保留现有播放列表过滤功能。
 
 1. 解压源码 ZIP，将内容更新到现有 GitHub 仓库根目录。`pubspec.yaml`、`codemagic.yaml`、`ios`、`lib`、`third_party` 应在同一级。务必一起上传 `third_party/video_player_avfoundation`，保留 LICENSE。
 2. 在现有 Codemagic 应用选择仓库里的 `codemagic.yaml`。

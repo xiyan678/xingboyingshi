@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:video_player/video_player.dart';
 import 'api.dart';
 import 'library.dart';
@@ -15,6 +16,7 @@ import 'fullscreen_player.dart';
 import 'player_gestures.dart';
 import 'player_options.dart';
 import 'playback_rules.dart';
+import 'desktop_mizhi_player.dart';
 
 class Player extends StatefulWidget {
   final Film film;
@@ -38,19 +40,19 @@ class Player extends StatefulWidget {
   State<Player> createState() => _PlayerState();
 }
 
-class _PlayerState extends State<Player> with WidgetsBindingObserver {
+class _PlayerState extends State<Player> {
   final session = PlaybackSession.instance;
   bool _fullscreenOpen = false;
-  bool _landscapeHandled = false;
-  bool _autoFullscreenSuppressed = false;
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) open();
+      if (mounted && !_isWindows) open();
     });
   }
+
+  bool get _isWindows =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
 
   Future<void> open() =>
       session.open(widget.film, widget.episode, widget.library,
@@ -60,36 +62,22 @@ class _PlayerState extends State<Player> with WidgetsBindingObserver {
           onCompleted: widget.onNext);
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
-    if (!session.pipActive && session.episode?.url == widget.episode.url) {
+    if (!_isWindows) {
+      unawaited(SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+      ]));
+    }
+    if (!_isWindows &&
+        !session.pipActive &&
+        session.episode?.url == widget.episode.url) {
       unawaited(session.pauseAndSave());
     }
     super.dispose();
   }
 
-  @override
-  void didChangeMetrics() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final size = MediaQuery.sizeOf(context);
-      if (size.width <= size.height) {
-        _landscapeHandled = false;
-      } else if (!_landscapeHandled &&
-          !_autoFullscreenSuppressed &&
-          !_fullscreenOpen &&
-          session.ready &&
-          (ModalRoute.of(context)?.isCurrent ?? false)) {
-        _landscapeHandled = true;
-        unawaited(showFullscreen());
-      }
-    });
-  }
-
   Future<void> showFullscreen() async {
     if (_fullscreenOpen) return;
     _fullscreenOpen = true;
-    _landscapeHandled = true;
     final select = widget.onSelectEpisode;
     try {
       await Navigator.push(
@@ -105,9 +93,6 @@ class _PlayerState extends State<Player> with WidgetsBindingObserver {
                           onSendDanmaku: () => send(ctx),
                           onFullscreen: () => FullscreenPlayer.exit(ctx))))));
     } finally {
-      // An explicit exit must win over the phone still being held sideways.
-      // Manual fullscreen remains available from the player button.
-      _autoFullscreenSuppressed = true;
       _fullscreenOpen = false;
     }
   }
@@ -128,36 +113,45 @@ class _PlayerState extends State<Player> with WidgetsBindingObserver {
   }
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-      animation: session,
-      builder: (context, _) => Column(children: [
-            Container(
-                color: Colors.black,
-                child: AspectRatio(
-                    aspectRatio: 16 / 9,
-                    child: session.error != null
-                        ? Center(
-                            child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                Text(session.error!,
-                                    textAlign: TextAlign.center),
-                                TextButton(
-                                    onPressed: () async {
-                                      await session.close();
-                                      await open();
-                                    },
-                                    child: const Text('重试'))
-                              ]))
-                        : !session.ready
-                            ? const Center(child: CircularProgressIndicator())
-                            : VideoSurface(
-                                onSelectEpisode: widget.onSelectEpisode,
-                                onNext: widget.onNext,
-                                onSendDanmaku: () => send(context),
-                                onFullscreen: showFullscreen))),
-            const Advertising(slot: 'player_bottom'),
-          ]));
+  Widget build(BuildContext context) => _isWindows
+      ? Column(children: [
+          AspectRatio(
+              aspectRatio: 16 / 9,
+              child: DesktopMizhiPlayer(
+                  film: widget.film, episode: widget.episode)),
+          const Advertising(slot: 'player_bottom'),
+        ])
+      : AnimatedBuilder(
+          animation: session,
+          builder: (context, _) => Column(children: [
+                Container(
+                    color: Colors.black,
+                    child: AspectRatio(
+                        aspectRatio: 16 / 9,
+                        child: session.error != null
+                            ? Center(
+                                child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                    Text(session.error!,
+                                        textAlign: TextAlign.center),
+                                    TextButton(
+                                        onPressed: () async {
+                                          await session.close();
+                                          await open();
+                                        },
+                                        child: const Text('重试'))
+                                  ]))
+                            : !session.ready
+                                ? const Center(
+                                    child: CircularProgressIndicator())
+                                : VideoSurface(
+                                    onSelectEpisode: widget.onSelectEpisode,
+                                    onNext: widget.onNext,
+                                    onSendDanmaku: () => send(context),
+                                    onFullscreen: showFullscreen))),
+                const Advertising(slot: 'player_bottom'),
+              ]));
   Future<void> send(BuildContext context) async {
     final service = AppService.instance;
     if (!service.loggedIn) {
@@ -232,6 +226,7 @@ class VideoSurface extends StatefulWidget {
 
 class _VideoSurfaceState extends State<VideoSurface> {
   bool locked = false;
+  static const accent = Color(0xFF00C7B2);
   bool get mini => widget.mini;
   bool get fullscreen => widget.fullscreen;
   VoidCallback get onFullscreen => widget.onFullscreen;
@@ -277,6 +272,61 @@ class _VideoSurfaceState extends State<VideoSurface> {
         builder: (_) => SkipSettingsSheet(settings: session.skipSettings));
     if (settings != null && context.mounted && session.film?.id == filmId) {
       await action(context, () => session.updateSkipSettings(settings));
+    }
+  }
+
+  Widget textAction(String label, VoidCallback onPressed) => Tooltip(
+      message: label,
+      child: TextButton(
+          style: TextButton.styleFrom(
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              minimumSize: const Size(44, 40)),
+          onPressed: onPressed,
+          child: Text(label,
+              style:
+                  const TextStyle(fontSize: 14, fontWeight: FontWeight.w600))));
+
+  Future<void> showMore(BuildContext context) async {
+    final selected = await showModalBottomSheet<String>(
+        context: context,
+        backgroundColor: const Color(0xF21D2025),
+        builder: (_) => SafeArea(
+                child: Wrap(children: [
+              const ListTile(
+                  title: Text('播放设置',
+                      style: TextStyle(fontWeight: FontWeight.w700))),
+              ListTile(
+                  leading: const Icon(Icons.picture_in_picture_alt_outlined),
+                  title: const Text('画中画'),
+                  onTap: () => Navigator.pop(context, 'pip')),
+              ListTile(
+                  leading: const Icon(Icons.content_cut),
+                  title: const Text('片头片尾'),
+                  onTap: () => Navigator.pop(context, 'skip')),
+              ListTile(
+                  leading: const Icon(Icons.timer_outlined),
+                  title: const Text('定时关闭'),
+                  onTap: () => Navigator.pop(context, 'sleep')),
+            ])));
+    if (!context.mounted || selected == null) return;
+    if (selected == 'skip') {
+      await showSkipSettings(context);
+    } else if (selected == 'sleep') {
+      await showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          builder: (_) =>
+              SleepTimerSheet(timer: PlaybackSession.instance.sleepTimer));
+    } else if (selected == 'pip') {
+      try {
+        await PlaybackSession.instance.enterSystemPip();
+      } catch (_) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('画中画未能开启，请在系统设置中允许画中画权限')));
+        }
+      }
     }
   }
 
@@ -373,35 +423,23 @@ class _VideoSurfaceState extends State<VideoSurface> {
                                                   fontSize: 14,
                                                   fontWeight:
                                                       FontWeight.w600))),
+                                      if (fullscreen) textAction('正常模式', () {}),
+                                      if (fullscreen)
+                                        IconButton(
+                                            tooltip: '投屏',
+                                            onPressed: () =>
+                                                ScaffoldMessenger.of(context)
+                                                    .showSnackBar(
+                                                        const SnackBar(
+                                                            content: Text(
+                                                                '当前版本暂不支持投屏'))),
+                                            icon:
+                                                const Icon(Icons.tv_outlined)),
+                                      IconButton(
+                                          tooltip: '更多',
+                                          onPressed: () => showMore(context),
+                                          icon: const Icon(Icons.more_horiz)),
                                     ]))),
-                          if (!mini &&
-                              v.isPlaying &&
-                              controlsVisible &&
-                              !locked)
-                            Positioned(
-                                left: 18,
-                                child: IconButton(
-                                    tooltip: '快退 10 秒',
-                                    onPressed: () => action(
-                                        context,
-                                        () => c.seekTo(v.position -
-                                            const Duration(seconds: 10))),
-                                    icon:
-                                        const Icon(Icons.replay_10, size: 32))),
-                          if (!mini &&
-                              v.isPlaying &&
-                              controlsVisible &&
-                              !locked)
-                            Positioned(
-                                right: 18,
-                                child: IconButton(
-                                    tooltip: '快进 10 秒',
-                                    onPressed: () => action(
-                                        context,
-                                        () => c.seekTo(v.position +
-                                            const Duration(seconds: 10))),
-                                    icon: const Icon(Icons.forward_10,
-                                        size: 32))),
                           if (!v.isPlaying &&
                               !v.isBuffering &&
                               controlsVisible &&
@@ -443,8 +481,11 @@ class _VideoSurfaceState extends State<VideoSurface> {
                                                     top: 10, bottom: 4),
                                                 colors:
                                                     const VideoProgressColors(
-                                                        playedColor:
-                                                            Color(0xFFFFD16A))),
+                                                        playedColor: accent,
+                                                        bufferedColor:
+                                                            Color(0x88FFFFFF),
+                                                        backgroundColor:
+                                                            Color(0x55FFFFFF))),
                                           Row(children: [
                                             IconButton(
                                                 tooltip:
@@ -471,7 +512,81 @@ class _VideoSurfaceState extends State<VideoSurface> {
                                                         TextOverflow.ellipsis,
                                                     style: const TextStyle(
                                                         fontSize: 11))),
+                                            if (fullscreen &&
+                                                onNext != null &&
+                                                !mini)
+                                              IconButton(
+                                                  tooltip: '下一集',
+                                                  visualDensity:
+                                                      VisualDensity.compact,
+                                                  onPressed: onNext,
+                                                  icon: const Icon(
+                                                      Icons.skip_next)),
                                             if (!mini)
+                                              AnimatedBuilder(
+                                                  animation:
+                                                      DanmakuSettings.instance,
+                                                  builder: (context, _) =>
+                                                      IconButton(
+                                                          tooltip:
+                                                              DanmakuSettings
+                                                                      .instance
+                                                                      .enabled
+                                                                  ? '关闭弹幕'
+                                                                  : '开启弹幕',
+                                                          onPressed: () {
+                                                            final settings =
+                                                                DanmakuSettings
+                                                                    .instance;
+                                                            settings.enabled =
+                                                                !settings
+                                                                    .enabled;
+                                                            settings.persist();
+                                                          },
+                                                          icon: Icon(
+                                                              Icons
+                                                                  .subtitles_outlined,
+                                                              color: DanmakuSettings
+                                                                      .instance
+                                                                      .enabled
+                                                                  ? accent
+                                                                  : Colors
+                                                                      .white70))),
+                                            if (fullscreen && !mini)
+                                              IconButton(
+                                                  tooltip: '弹幕设置',
+                                                  onPressed: () =>
+                                                      showDanmakuSettings(
+                                                          context),
+                                                  icon: const Icon(
+                                                      Icons.tune_outlined)),
+                                            if (fullscreen && !mini)
+                                              Expanded(
+                                                  flex: 2,
+                                                  child: InkWell(
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              20),
+                                                      onTap: onSendDanmaku,
+                                                      child: Container(
+                                                          height: 36,
+                                                          alignment: Alignment
+                                                              .centerLeft,
+                                                          padding: const EdgeInsets.symmetric(
+                                                              horizontal: 14),
+                                                          decoration: BoxDecoration(
+                                                              color: Colors
+                                                                  .white12,
+                                                              borderRadius:
+                                                                  BorderRadius.circular(
+                                                                      20)),
+                                                          child: const Text('发弹幕',
+                                                              style: TextStyle(
+                                                                  color: Colors
+                                                                      .white60,
+                                                                  fontSize:
+                                                                      13))))),
+                                            if (fullscreen && !mini)
                                               PopupMenuButton<double>(
                                                   tooltip: '倍速',
                                                   onSelected: (s) => action(
@@ -494,94 +609,24 @@ class _VideoSurfaceState extends State<VideoSurface> {
                                                   child: Padding(
                                                       padding:
                                                           const EdgeInsets.all(
-                                                              6),
-                                                      child: Text(
-                                                          '${v.playbackSpeed}x',
-                                                          style: const TextStyle(
-                                                              fontSize: 12)))),
-                                            if (onNext != null && !mini)
-                                              IconButton(
-                                                  tooltip: '下一集',
-                                                  visualDensity:
-                                                      VisualDensity.compact,
-                                                  onPressed: onNext,
-                                                  icon: const Icon(
-                                                      Icons.skip_next)),
+                                                              8),
+                                                      child: Text(v
+                                                                  .playbackSpeed ==
+                                                              1
+                                                          ? '倍速'
+                                                          : '${v.playbackSpeed}x'))),
+                                            if (fullscreen && !mini)
+                                              textAction(
+                                                  '自动',
+                                                  () => ScaffoldMessenger.of(
+                                                          context)
+                                                      .showSnackBar(const SnackBar(
+                                                          content: Text(
+                                                              '当前播放源将自动选择可用清晰度')))),
                                             if (!mini &&
                                                 onSelectEpisode != null)
-                                              IconButton(
-                                                  tooltip: '选集',
-                                                  visualDensity:
-                                                      VisualDensity.compact,
-                                                  onPressed: () =>
-                                                      selectEpisode(context),
-                                                  icon: const Icon(
-                                                      Icons.playlist_play)),
-                                            if (!mini)
-                                              PopupMenuButton<String>(
-                                                  tooltip: '更多',
-                                                  onSelected: (value) async {
-                                                    if (value == 'skip') {
-                                                      await showSkipSettings(
-                                                          context);
-                                                    } else if (value ==
-                                                        'sleep') {
-                                                      await showModalBottomSheet<
-                                                              void>(
-                                                          context: context,
-                                                          isScrollControlled:
-                                                              true,
-                                                          builder: (_) =>
-                                                              SleepTimerSheet(
-                                                                  timer: session
-                                                                      .sleepTimer));
-                                                    } else if (value ==
-                                                        'danmaku') {
-                                                      showDanmakuSettings(
-                                                          context);
-                                                    } else if (value ==
-                                                        'send') {
-                                                      onSendDanmaku?.call();
-                                                    } else if (value ==
-                                                        'mini') {
-                                                      try {
-                                                        await session
-                                                            .enterSystemPip();
-                                                      } catch (_) {
-                                                        if (context.mounted) {
-                                                          ScaffoldMessenger.of(
-                                                                  context)
-                                                              .showSnackBar(
-                                                                  const SnackBar(
-                                                                      content: Text(
-                                                                          '桌面小窗未能开启，请检查系统画中画权限后重试')));
-                                                        }
-                                                      }
-                                                    }
-                                                  },
-                                                  itemBuilder: (_) => const [
-                                                        PopupMenuItem(
-                                                            value: 'skip',
-                                                            child:
-                                                                Text('片头片尾')),
-                                                        PopupMenuItem(
-                                                            value: 'sleep',
-                                                            child:
-                                                                Text('定时关闭')),
-                                                        PopupMenuItem(
-                                                            value: 'danmaku',
-                                                            child:
-                                                                Text('弹幕设置')),
-                                                        PopupMenuItem(
-                                                            value: 'send',
-                                                            child: Text('发弹幕')),
-                                                        PopupMenuItem(
-                                                            value: 'mini',
-                                                            child: Text(
-                                                                '画中画（桌面小窗）')),
-                                                      ],
-                                                  icon: const Icon(
-                                                      Icons.more_horiz)),
+                                              textAction('选集',
+                                                  () => selectEpisode(context)),
                                             IconButton(
                                                 tooltip: fullscreen
                                                     ? '退出全屏'
