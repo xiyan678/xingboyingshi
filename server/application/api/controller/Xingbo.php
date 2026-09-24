@@ -289,6 +289,7 @@ class Xingbo extends Controller
         if (is_array($data)) {
             $trace['success']=isset($data['success'])?$data['success']:null;
             $trace['error']=isset($data['errorMessage'])?(string)$data['errorMessage']:(isset($data['message'])?(string)$data['message']:'');
+            $trace['detail']=isset($data['errorDetail'])?(string)$data['errorDetail']:'';
             $trace['animes']=isset($data['animes'])&&is_array($data['animes'])?count($data['animes']):null;
             $trace['comments']=isset($data['comments'])&&is_array($data['comments'])?count($data['comments']):null;
         } else {
@@ -316,7 +317,7 @@ class Xingbo extends Controller
         if ($withoutYear!=='' && $withoutYear!==$title) $queries[]=$withoutYear;
         if ($baseTitle!=='' && !in_array($baseTitle,$queries,true)) $queries[]=$baseTitle;
         foreach ($queries as $query) {
-            $search=$this->externalJson($base.'/search/episodes?anime='.rawurlencode($query).'&episode='.intval($episode).'&v2=true');
+            $search=$this->externalJson($base.'/search/episodes?anime='.rawurlencode($query).'&episode='.intval($episode));
             if (!$search || empty($search['animes']) || !is_array($search['animes'])) continue;
             foreach ($search['animes'] as $anime) {
                 if (empty($anime['episodes']) || !is_array($anime['episodes'])) continue;
