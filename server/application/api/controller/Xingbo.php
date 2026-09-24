@@ -3,6 +3,7 @@ namespace app\api\controller;
 
 use think\Controller;
 use think\Db;
+use think\Cache;
 
 /** Additive mobile extension. Uses the site's User model for ALL password checks. */
 class Xingbo extends Controller
@@ -231,6 +232,13 @@ class Xingbo extends Controller
             if ($this->request->isGet()) {
                 $from=$this->integer('from_ms',0,0,86400000);$to=min(86400000,$from+60000);
                 $rows=Db::name('xb_danmaku')->field('id,position_ms,content')->where(['vod_id'=>$film['vod_id'],'episode'=>$episode,'status'=>1])->where('position_ms','between',[$from,$to])->order('position_ms asc,id asc')->limit(300)->select();
+                if (config('xingbo.external_danmaku_enabled')) {
+                    foreach ($this->externalDanmaku($film,$episode) as $row) {
+                        if ($row['position_ms'] >= $from && $row['position_ms'] <= $to) $rows[]=$row;
+                    }
+                    usort($rows,function($a,$b){return intval($a['position_ms'])<=>intval($b['position_ms']);});
+                    $rows=array_slice($rows,0,500);
+                }
                 return ['list'=>$rows];
             }
             $this->postOnly();$u=$this->user();$this->rate('danmaku-'.$u['user_id'],1,10);
@@ -241,6 +249,53 @@ class Xingbo extends Controller
             $id=Db::name('xb_danmaku')->insertGetId(['user_id'=>$u['user_id'],'vod_id'=>$film['vod_id'],'episode'=>$episode,'position_ms'=>$position,'content'=>$content,'status'=>$review?0:1,'created_at'=>time()]);
             return ['id'=>$id,'pending'=>$review,'msg'=>$review?'弹幕已提交，审核通过后显示':'弹幕发送成功'];
         });
+    }
+
+    protected function externalJson($url)
+    {
+        $context=stream_context_create(['http'=>[
+            'method'=>'GET','timeout'=>6,'ignore_errors'=>true,
+            'header'=>"Accept: application/json\r\nUser-Agent: XingboCinema/1.0\r\n"
+        ]]);
+        $raw=@file_get_contents($url,false,$context);
+        if ($raw===false || strlen($raw)>8388608) return null;
+        $data=json_decode($raw,true);
+        return is_array($data)?$data:null;
+    }
+
+    protected function externalDanmaku($film,$episode)
+    {
+        $base=rtrim((string)config('xingbo.external_danmaku_api'),'/');
+        if ($base==='' || !preg_match('#^https://#i',$base)) return [];
+        $cacheKey='xingbo_ext_dm_'.intval($film['vod_id']).'_'.intval($episode);
+        $cached=Cache::get($cacheKey);
+        if (is_array($cached)) return $cached;
+        $title=trim((string)$film['vod_name']);
+        $year=trim((string)$film['vod_year']);
+        $query=$title.($year!==''?' '.$year:'');
+        $search=$this->externalJson($base.'/search/episodes?anime='.rawurlencode($query).'&episode='.intval($episode));
+        if (!$search || empty($search['animes']) || !is_array($search['animes'])) return [];
+        $episodeId=0;
+        foreach ($search['animes'] as $anime) {
+            if (empty($anime['episodes']) || !is_array($anime['episodes'])) continue;
+            foreach ($anime['episodes'] as $candidate) {
+                if (!empty($candidate['episodeId'])) {$episodeId=intval($candidate['episodeId']);break 2;}
+            }
+        }
+        if ($episodeId<1) return [];
+        $payload=$this->externalJson($base.'/comment/'.$episodeId.'?withRelated=true&chConvert=1');
+        if (!$payload || empty($payload['comments']) || !is_array($payload['comments'])) return [];
+        $rows=[];
+        foreach (array_slice($payload['comments'],0,5000) as $comment) {
+            $parts=explode(',',isset($comment['p'])?(string)$comment['p']:'');
+            $content=trim(isset($comment['m'])?(string)$comment['m']:'');
+            if (count($parts)<1 || $content==='' || mb_strlen($content)>100) continue;
+            $position=max(0,min(86400000,intval(round(floatval($parts[0])*1000))));
+            $seed=isset($comment['cid'])?(string)$comment['cid']:$episodeId.'|'.$position.'|'.$content;
+            $rows[]=['id'=>1000000000+(intval(sprintf('%u',crc32($seed)))%1000000000),'position_ms'=>$position,'content'=>$content,'source'=>'external'];
+        }
+        Cache::set($cacheKey,$rows,21600);
+        return $rows;
     }
 
     // Public app feed for enabled advertisements. Management should be done
