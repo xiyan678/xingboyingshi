@@ -8,6 +8,7 @@ use think\Cache;
 /** Additive mobile extension. Uses the site's User model for ALL password checks. */
 class Xingbo extends Controller
 {
+    protected $externalTrace=[];
     protected function runAction($fn)
     {
         try {
@@ -232,6 +233,7 @@ class Xingbo extends Controller
             if ($this->request->isGet()) {
                 $from=$this->integer('from_ms',0,0,86400000);$to=min(86400000,$from+60000);
                 $rows=Db::name('xb_danmaku')->field('id,position_ms,content')->where(['vod_id'=>$film['vod_id'],'episode'=>$episode,'status'=>1])->where('position_ms','between',[$from,$to])->order('position_ms asc,id asc')->limit(300)->select();
+                $this->externalTrace=[];
                 if (config('xingbo.external_danmaku_enabled')) {
                     foreach ($this->externalDanmaku($film,$episode) as $row) {
                         if ($row['position_ms'] >= $from && $row['position_ms'] <= $to) $rows[]=$row;
@@ -239,7 +241,9 @@ class Xingbo extends Controller
                     usort($rows,function($a,$b){return intval($a['position_ms'])<=>intval($b['position_ms']);});
                     $rows=array_slice($rows,0,500);
                 }
-                return ['list'=>$rows];
+                $result=['list'=>$rows];
+                if ((string)$this->request->param('debug','')==='1') $result['external_debug']=$this->externalTrace;
+                return $result;
             }
             $this->postOnly();$u=$this->user();$this->rate('danmaku-'.$u['user_id'],1,10);
             $content=trim((string)$this->request->post('content',''));
@@ -255,8 +259,14 @@ class Xingbo extends Controller
     {
         $appId=trim((string)config('xingbo.external_danmaku_app_id'));
         $appSecret=trim((string)config('xingbo.external_danmaku_app_secret'));
-        if ($appId==='' || $appSecret==='') return null;
-        if (preg_match('/[\r\n]/',$appId.$appSecret)) return null;
+        if ($appId==='' || $appSecret==='') {
+            $this->externalTrace[]=['stage'=>'config','status'=>0,'error'=>'missing_credentials'];
+            return null;
+        }
+        if (preg_match('/[\r\n]/',$appId.$appSecret)) {
+            $this->externalTrace[]=['stage'=>'config','status'=>0,'error'=>'invalid_credentials'];
+            return null;
+        }
         $context=stream_context_create(['http'=>[
             'method'=>'GET','timeout'=>6,'ignore_errors'=>true,
             'header'=>"Accept: application/json\r\n".
@@ -265,8 +275,26 @@ class Xingbo extends Controller
                 "X-AppSecret: ".$appSecret."\r\n"
         ]]);
         $raw=@file_get_contents($url,false,$context);
-        if ($raw===false || strlen($raw)>8388608) return null;
+        $status=0;
+        foreach ((array)(isset($http_response_header)?$http_response_header:[]) as $header) {
+            if (preg_match('#^HTTP/\S+\s+(\d{3})#i',$header,$match)) $status=intval($match[1]);
+        }
+        $stage=strpos($url,'/search/')!==false?'search':'comments';
+        if ($raw===false || strlen($raw)>8388608) {
+            $this->externalTrace[]=['stage'=>$stage,'status'=>$status,'error'=>$raw===false?'request_failed':'response_too_large'];
+            return null;
+        }
         $data=json_decode($raw,true);
+        $trace=['stage'=>$stage,'status'=>$status,'bytes'=>strlen($raw)];
+        if (is_array($data)) {
+            $trace['success']=isset($data['success'])?$data['success']:null;
+            $trace['error']=isset($data['errorMessage'])?(string)$data['errorMessage']:(isset($data['message'])?(string)$data['message']:'');
+            $trace['animes']=isset($data['animes'])&&is_array($data['animes'])?count($data['animes']):null;
+            $trace['comments']=isset($data['comments'])&&is_array($data['comments'])?count($data['comments']):null;
+        } else {
+            $trace['error']='invalid_json';
+        }
+        $this->externalTrace[]=$trace;
         return is_array($data)?$data:null;
     }
 
@@ -276,7 +304,10 @@ class Xingbo extends Controller
         if ($base==='' || !preg_match('#^https://#i',$base)) return [];
         $cacheKey='xingbo_ext_dm_'.intval($film['vod_id']).'_'.intval($episode);
         $cached=Cache::get($cacheKey);
-        if (is_array($cached)) return $cached;
+        if (is_array($cached)) {
+            $this->externalTrace[]=['stage'=>'cache','status'=>200,'comments'=>count($cached)];
+            return $cached;
+        }
         $episodeId=0;
         $title=trim((string)$film['vod_name']);
         $queries=[$title];
