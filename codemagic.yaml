@@ -11,9 +11,26 @@ workflows:
       - name: Check Flutter project
         script: flutter analyze --no-fatal-warnings
       - name: Build Android APK
-        script: flutter build apk --debug
+        script: flutter build apk --debug --flavor mobile -t lib/main.dart
     artifacts:
       - build/app/outputs/flutter-apk/*.apk
+      - /tmp/flutter_logs/*.log
+
+  xingbo-android-tv-debug:
+    name: Xingbo Android TV test APK
+    max_build_duration: 60
+    instance_type: linux_x2
+    environment:
+      flutter: stable
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Check Flutter project
+        script: flutter analyze --no-fatal-warnings
+      - name: Build Android TV APK
+        script: flutter build apk --debug --flavor tv -t lib/main_tv.dart
+    artifacts:
+      - build/app/outputs/flutter-apk/app-tv-debug.apk
       - /tmp/flutter_logs/*.log
 
   xingbo-ios-adhoc:

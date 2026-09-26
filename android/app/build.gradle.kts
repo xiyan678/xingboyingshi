@@ -40,6 +40,19 @@ android {
         versionName = flutter.versionName
     }
 
+    flavorDimensions += "device"
+    productFlavors {
+        create("mobile") {
+            dimension = "device"
+            applicationId = "pro.xbxx.xingbo_app"
+        }
+        create("tv") {
+            dimension = "device"
+            applicationId = "pro.xbxx.xingbo.tv"
+            versionNameSuffix = "-tv"
+        }
+    }
+
     signingConfigs {
         if (hasReleaseSigning) {
             create("release") {
